@@ -1,0 +1,237 @@
+{
+  "name": "3_Dental_Reminder_3h_FINAL (4-Param Official Template - No Loop Bug)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# ⏳ الدليل الشامل: ورك فلو تذكير الـ 3 ساعات (3h Final Attendance Reminder)\n### ماذا يفعل هذا الورك فلو؟\nيعمل تلقائياً كل ساعة لفحص حجوزات اليوم المؤكدة وإرسال تذكير نهائي للمريض قبل موعده بـ 3 ساعات، لإعطائه فرصة أخيرة للتأكيد أو الإلغاء المبكر لتشغيل قائمة الانتظار.\n\n---\n### 📋 شرح النودز بالتفصيل:\n1. **`Schedule Trigger` (المنطقة الصفراء):** مؤقت يعمل كل ساعة.\n2. **`1. Get Today Confirmed Appointments`:** يجلب حجوزات اليوم (`CURRENT_DATE`) المؤكدة التي لم يُرسل لها تذكير الـ 3 ساعات (`reminder_3h_sent = false`).\n3. **`2. Filter 3h Window & Build 4-Param Template` (المنطقة البنفسجية):** يفحص المواعيد المتبقي عليها من 1.5 إلى 3.8 ساعة بتوقيت القاهرة، ويجهز القالب الرسمي `dental_appointment_reminder` بالـ 4 متغيرات.\n4. **`3. Send 3h Meta Official Template` (المنطقة الخضراء):** يرسل التذكير النهائي للمريض عبر Meta Cloud API.\n5. **`4. Mark Exact Appointment 3h Sent`:** يحدث `reminder_3h_sent = true` لنفس رقم الحجز (`id`).",
+        "height": 620,
+        "width": 620,
+        "color": 5
+      },
+      "id": "sticky-3h-guide",
+      "name": "Sticky Note - 3h Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟨 1. المؤقت وجلب مواعيد اليوم المؤكدة\nيسحب حجوزات اليوم المؤكدة التي لم تستلم تذكير الـ 3 ساعات.",
+        "height": 340,
+        "width": 500,
+        "color": 1
+      },
+      "id": "sticky-3h-sec1",
+      "name": "Sticky Note - 3h Sec 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟪 2. فلترة نافذة الـ 3 ساعات وبناء القالب\nيتحقق من بقاء ~3 ساعات على الكشف ويبني القالب الرسمي.",
+        "height": 340,
+        "width": 300,
+        "color": 6
+      },
+      "id": "sticky-3h-sec2",
+      "name": "Sticky Note - 3h Sec 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟩 3. إرسال التذكير النهائي وتحديث الحالة\nيرسل القالب عبر ميتا ويعلم `reminder_3h_sent = true`.",
+        "height": 340,
+        "width": 560,
+        "color": 4
+      },
+      "id": "sticky-3h-sec3",
+      "name": "Sticky Note - 3h Sec 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        830,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        80
+      ],
+      "id": "ad65b0fd-8593-4b47-9110-e086a00666f8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, patient_name, phone, doctor_name, appointment_date::text AS appointment_date, appointment_time\nFROM public.appointments\nWHERE status = 'confirmed'\n  AND reminder_3h_sent = FALSE\n  AND appointment_date = CURRENT_DATE\nORDER BY id ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        280,
+        80
+      ],
+      "id": "5e083c7c-42d8-400e-80a7-c947d357cc18",
+      "name": "1. Get Today Confirmed Appointments",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const META_PHONE_NUMBER_ID = 'YOUR_WHATSAPP_PHONE_NUMBER_ID';\nconst META_ACCESS_TOKEN = 'YOUR_META_PERMANENT_ACCESS_TOKEN';\nconst OFFICIAL_TEMPLATE_NAME = 'dental_appointment_reminder';\n\nconst TEST_ANY_TODAY = false;\n\nfunction parseCairoDateTime(dateStr, timeStr) {\n  const [year, month, day] = String(dateStr).split('-').map(Number);\n  const cleanTime = String(timeStr || '05:00 PM').trim().toUpperCase();\n  const match = cleanTime.match(/(\\d{1,2}):(\\d{2})\\s*(AM|PM)?/);\n  let hours = match ? parseInt(match[1], 10) : 17;\n  const minutes = match ? parseInt(match[2], 10) : 0;\n  const period = match ? match[3] : null;\n  if (period === 'PM' && hours < 12) hours += 12;\n  if (period === 'AM' && hours === 12) hours = 0;\n  const isoStr = `${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00+02:00`;\n  return new Date(isoStr);\n}\n\nconst now = new Date();\nconst results = [];\n\nfor (const wrapped of $input.all()) {\n  const item = wrapped.json;\n  if (!item || !item.id) continue;\n\n  const apptTime = parseCairoDateTime(item.appointment_date, item.appointment_time);\n  const diffInHours = (apptTime - now) / (1000 * 60 * 60);\n\n  // مستحيل يبعت لميعاد فات وقته (diffInHours <= 0)\n  if (diffInHours <= 0) continue;\n  if (!TEST_ANY_TODAY && (diffInHours < 1.5 || diffInHours > 3.8)) continue;\n\n  let phone = String(item.phone || '').trim().replace(/^\\+/, '');\n  if (phone.startsWith('01')) phone = '20' + phone.slice(1);\n\n  const patientName = item.patient_name || 'عميلنا العزيز';\n  const appointmentDate = item.appointment_date;\n  const doctorName = item.doctor_name || 'الطبيب المختص';\n  const appointmentTime = item.appointment_time || '05:00 PM';\n\n  // استخدام القالب الرسمي بالـ 4 متغيرات لضمان الوصول حتى لو مرت 24 ساعة على آخر رسالة\n  const templatePayload = {\n    messaging_product: 'whatsapp',\n    to: phone,\n    type: 'template',\n    template: {\n      name: OFFICIAL_TEMPLATE_NAME,\n      language: { code: 'ar' },\n      components: [\n        {\n          type: 'body',\n          parameters: [\n            { type: 'text', text: patientName },\n            { type: 'text', text: appointmentDate },\n            { type: 'text', text: doctorName },\n            { type: 'text', text: appointmentTime }\n          ]\n        },\n        {\n          type: 'button',\n          sub_type: 'quick_reply',\n          index: '0',\n          parameters: [{ type: 'payload', payload: 'CONFIRM_APPT' }]\n        },\n        {\n          type: 'button',\n          sub_type: 'quick_reply',\n          index: '1',\n          parameters: [{ type: 'payload', payload: 'CANCEL_APPT' }]\n        }\n      ]\n    }\n  };\n\n  results.push({\n    json: {\n      appointment_id: item.id,\n      phone: phone,\n      phone_number_id: META_PHONE_NUMBER_ID,\n      meta_access_token: META_ACCESS_TOKEN,\n      diff_hours: Number(diffInHours.toFixed(2)),\n      meta_payload: templatePayload\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        80
+      ],
+      "id": "5519213e-f19c-42ec-8083-29bbce32f048",
+      "name": "2. Filter 3h Window & Build 4-Param Template"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.meta_payload) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        80
+      ],
+      "id": "e1868be4-2eee-4a90-8450-e162906d7535",
+      "name": "3. Send 3h Meta Official Template"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.appointments\nSET reminder_3h_sent = TRUE\nWHERE id = {{ $('2. Filter 3h Window & Build 4-Param Template').item.json.appointment_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1180,
+        80
+      ],
+      "id": "419ce1a9-4045-4379-b1ff-8af946813282",
+      "name": "4. Mark Exact Appointment 3h Sent",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "1. Get Today Confirmed Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Get Today Confirmed Appointments": {
+      "main": [
+        [
+          {
+            "node": "2. Filter 3h Window & Build 4-Param Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Filter 3h Window & Build 4-Param Template": {
+      "main": [
+        [
+          {
+            "node": "3. Send 3h Meta Official Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Send 3h Meta Official Template": {
+      "main": [
+        [
+          {
+            "node": "4. Mark Exact Appointment 3h Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "YOUR_ERROR_WORKFLOW_ID",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "fb73b8d5-b387-42b1-9f2b-fa3bb37e5e7e",
+  "meta": {
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "NkfpU6IMeV6BsAn0",
+  "tags": []
+}

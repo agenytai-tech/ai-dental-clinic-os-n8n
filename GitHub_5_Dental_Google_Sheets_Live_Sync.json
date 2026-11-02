@@ -1,0 +1,365 @@
+{
+  "name": "5_Dental_Google_Sheets_Live_Sync (Booked, Cancelled, Confirmed, Rescheduled, Waitlist, Rated)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# 📊 الدليل الشامل: مزامنة الحجوزات الحية مع Google Sheets\n### ماذا يفعل هذا الورك فلو؟\nيربط قاعدة بيانات العيادة (Supabase) بجدول **Google Sheets** في الوقت الفعلي، بحيث يظهر كل حجز جديد، أو تعديل موعد، أو تأكيد حضور، أو إلغاء، أو تقييم (1-5 نجوم) في نفس سطر المريض داخل الشيت.\n\n---\n### 📋 شرح النودز بالتفصيل:\n1. **`Webhook (clinic-sheets-sync)` (المنطقة الزرقاء):** يستقبل إشارة التحديث اللحظية فور إتمام أي حجز جديد.\n2. **`Auto Sync Every 5 Mins`:** مؤقت احتياطي يعمل كل 5 دقائق لمزامنة أي تغييرات (إلغاء، تأكيد حضور، تقييمات).\n3. **`1. Fetch Latest Clinic Bookings & Statuses (Supabase)` (المنطقة البنفسجية):** يسحب أحدث الحجوزات وحالاتها باللغة العربية (`✅ حجز مؤكد` / `🟢 أكد الحضور النهائي` / `❌ ملغي`).\n4. **`2. Append or Update Row in Google Sheets` (المنطقة الخضراء):** يطابق بعمود **`كود الحجز`**؛ فإذا كان حجزاً جديداً يضيفه، وإذا كان موجوداً يحدث حالته في نفس السطر.",
+        "height": 600,
+        "width": 600,
+        "color": 5
+      },
+      "id": "sticky-sheets-guide",
+      "name": "Sticky Note - Sheets Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        140,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟦 1. مشغلات المزامنة اللحظية والدورية\nيعمل فور الحجز عبر الـ Webhook + دورياً كل 5 دقائق.",
+        "height": 480,
+        "width": 280,
+        "color": 5
+      },
+      "id": "sticky-sheets-sec1",
+      "name": "Sticky Note - Sheets Sec 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟪 2. سحب وتنسيق بيانات الحجوزات\nيقرأ من Supabase ويحول الحالات والتقييمات للعربية.",
+        "height": 480,
+        "width": 300,
+        "color": 6
+      },
+      "id": "sticky-sheets-sec2",
+      "name": "Sticky Note - Sheets Sec 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1090,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟩 3. الإضافة والتحديث الذكي في Google Sheets\nيحدث سطر المريض مباشرة باستخدام `كود الحجز` بدون تكرار.",
+        "height": 480,
+        "width": 340,
+        "color": 4
+      },
+      "id": "sticky-sheets-sec3",
+      "name": "Sticky Note - Sheets Sec 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clinic-sheets-sync",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        832,
+        400
+      ],
+      "id": "f4eeb1a4-4df5-4604-bf13-b6dfd05c5a20",
+      "name": "Webhook (clinic-sheets-sync)",
+      "webhookId": "clinic-sheets-sync-webhook-2026"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        832,
+        620
+      ],
+      "id": "28c75782-fe61-4ff7-ab1d-f9a488c0b3be",
+      "name": "Auto Sync Every 5 Mins (Full DB Mirror)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  id AS appointment_id,\n  patient_name,\n  phone,\n  doctor_name,\n  COALESCE(service_type, 'كشف أسنان') AS service_type,\n  appointment_date::text AS appointment_date,\n  appointment_time,\n  CASE\n    WHEN status = 'cancelled' THEN '❌ ملغي (Cancelled)'\n    WHEN status = 'confirmed' AND decision_locked = TRUE THEN '🟢 أكد الحضور النهائي'\n    ELSE '✅ حجز مؤكد'\n  END AS status_arabic,\n  CASE WHEN reminder_24h_sent THEN 'تم الإرسال ✓' ELSE 'لم يرسل' END AS reminder_24h,\n  CASE WHEN reminder_3h_sent THEN 'تم الإرسال ✓' ELSE 'لم يرسل' END AS reminder_3h,\n  COALESCE(rating_score::text || ' / 5 ⭐', 'لم يقيم بعد') AS rating,\n  COALESCE(notes, 'حجز عبر البوت') AS notes,\n  COALESCE(decision_at::text, created_at::text) AS last_updated\nFROM public.appointments\nORDER BY id DESC\nLIMIT 100;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1160,
+        510
+      ],
+      "id": "96b638eb-54e7-4b29-bb64-a3406bc867bd",
+      "name": "1. Fetch Latest Clinic Bookings & Statuses (Supabase)",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 0,
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "كود الحجز": "={{ $json.appointment_id }}",
+            "اسم المريض": "={{ $json.patient_name }}",
+            "رقم التليفون": "={{ $json.phone }}",
+            "اسم الدكتور": "={{ $json.doctor_name }}",
+            "الخدمة": "={{ $json.service_type }}",
+            "تاريخ الكشف": "={{ $json.appointment_date }}",
+            "وقت الكشف": "={{ $json.appointment_time }}",
+            "حالة الحجز": "={{ $json.status_arabic }}",
+            "تذكير 24 ساعة": "={{ $json.reminder_24h }}",
+            "تذكير 3 ساعات": "={{ $json.reminder_3h }}",
+            "تقييم المريض": "={{ $json.rating }}",
+            "ملاحظات": "={{ $json.notes }}",
+            "وقت آخر تحديث": "={{ $json.last_updated }}"
+          },
+          "matchingColumns": [
+            "كود الحجز"
+          ],
+          "schema": [
+            {
+              "id": "كود الحجز",
+              "displayName": "كود الحجز",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "اسم المريض",
+              "displayName": "اسم المريض",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "رقم التليفون",
+              "displayName": "رقم التليفون",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "اسم الدكتور",
+              "displayName": "اسم الدكتور",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "الخدمة",
+              "displayName": "الخدمة",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "تاريخ الكشف",
+              "displayName": "تاريخ الكشف",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "وقت الكشف",
+              "displayName": "وقت الكشف",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "حالة الحجز",
+              "displayName": "حالة الحجز",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "تذكير 24 ساعة",
+              "displayName": "تذكير 24 ساعة",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "تذكير 3 ساعات",
+              "displayName": "تذكير 3 ساعات",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "تقييم المريض",
+              "displayName": "تقييم المريض",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ملاحظات",
+              "displayName": "ملاحظات",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "وقت آخر تحديث",
+              "displayName": "وقت آخر تحديث",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1500,
+        510
+      ],
+      "id": "9b6b674a-979b-4b06-8986-3d5bcb4a65ea",
+      "name": "2. Append or Update Row in Google Sheets",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook (clinic-sheets-sync)": {
+      "main": [
+        [
+          {
+            "node": "1. Fetch Latest Clinic Bookings & Statuses (Supabase)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto Sync Every 5 Mins (Full DB Mirror)": {
+      "main": [
+        [
+          {
+            "node": "1. Fetch Latest Clinic Bookings & Statuses (Supabase)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Fetch Latest Clinic Bookings & Statuses (Supabase)": {
+      "main": [
+        [
+          {
+            "node": "2. Append or Update Row in Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "YOUR_ERROR_WORKFLOW_ID",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "24da4ed3-dc8a-40e0-81ec-14fd85ca4dbf",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "Mj9LAUyV3xWHjL6M",
+  "tags": []
+}

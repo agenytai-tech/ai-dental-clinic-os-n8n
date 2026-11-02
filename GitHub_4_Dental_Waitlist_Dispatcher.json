@@ -1,0 +1,315 @@
+{
+  "name": "4_Dental_Waitlist_Dispatcher_FINAL (4-Param Template + 15m Auto-Next Patient Loop)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# ⚡ الدليل الشامل: محرك قائمة الانتظار الذكي (Waitlist Auto-Dispatcher)\n### ماذا يفعل هذا الورك فلو؟\nبمجرد أن يلغي أي مريض موعده، ينطلق هذا الورك فلو فوراً ليعرض الموعد الشاغر على أول مريض في قائمة الانتظار، ويمنحه **مهلة 15 دقيقة**؛ فإذا لم يؤكد الحجز خلالها، ينقل العرض تلقائياً للمريض التالي في القائمة!\n\n---\n### 📋 شرح النودز بالتفصيل:\n1. **`Webhook` (المنطقة الزرقاء):** يستقبل إشارة الإلغاء الفورية (`doctor_name`, `appointment_date`, `appointment_time`) من الورك فلو الأساسي.\n2. **`1. Verify Slot Free & Claim Next Waiting Patient`:** يتأكد أولاً أن الموعد لا يزال شاغراً في جدول `appointments`، ثم يختار أقدم مريض منتظر (`pending`) ويحدث حالته إلى `notified`.\n3. **`2. Prepare 4-Param Waitlist Meta Offer` & `3. Send Offer via Meta` (المنطقة الخضراء):** يجهز ويرسل قالب ميتا الرسمي **`dental_waitlist_offer`** بالـ 4 متغيرات وزر `CLAIM_WAITLIST`.\n4. **`4. Wait 15 Minutes` -> `5. Expire If Unclaimed` -> `6. Did 15m Expire?` (المنطقة البرتقالية/الحمراء):** ينتظر 15 دقيقة؛ إذا لم يضغط المريض الأول على زر التأكيد، يحوله إلى `expired` ويعيد تشغيل النود رقم 1 لإرسال العرض للمريض التالي تلقائياً!",
+        "height": 640,
+        "width": 640,
+        "color": 5
+      },
+      "id": "sticky-waitlist-guide",
+      "name": "Sticky Note - Waitlist Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -720,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟦 1. استقبال الإلغاء وفحص خلو الموعد\nيتحقق أن الميعاد شاغر ويختار أول مريض في قائمة الانتظار.",
+        "height": 360,
+        "width": 500,
+        "color": 5
+      },
+      "id": "sticky-waitlist-sec1",
+      "name": "Sticky Note - Waitlist Sec 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟩 2. تجهيز وإرسال عرض الانتظار الرسمي\nيرسل قالب `dental_waitlist_offer` بالـ 4 متغيرات وزر التأكيد الفوري.",
+        "height": 360,
+        "width": 560,
+        "color": 4
+      },
+      "id": "sticky-waitlist-sec2",
+      "name": "Sticky Note - Waitlist Sec 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟧 3. مؤقت الـ 15 دقيقة والانتقال التلقائي للمريض التالي\nينتظر 15 دقيقة؛ إذا لم يؤكد المريض الأول، يحوله لـ `expired` ويلف لإرسال العرض للمريض التالي!",
+        "height": 360,
+        "width": 860,
+        "color": 2
+      },
+      "id": "sticky-waitlist-sec3",
+      "name": "Sticky Note - Waitlist Sec 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "appointment-cancelled",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        80
+      ],
+      "id": "6fe953c5-2c61-4147-91d8-cccac8f0e6be",
+      "name": "Webhook",
+      "webhookId": "dc499305-052b-4c1c-96ba-5addc9e079e0"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH slot_info AS (\n  SELECT\n    '{{ $('Webhook').first().json.body.doctor_name }}'::text AS doc,\n    '{{ $('Webhook').first().json.body.appointment_date }}'::date AS dt,\n    '{{ $('Webhook').first().json.body.appointment_time }}'::text AS tm\n),\n-- 1. التأكد أولاً أن الموعد لا يزال شاغراً في جدول الحجوزات ولم يحجزه أحد\nslot_free AS (\n  SELECT 1 AS ok\n  FROM slot_info s\n  WHERE NOT EXISTS (\n    SELECT 1 FROM public.appointments a\n    WHERE a.doctor_name = s.doc\n      AND a.appointment_date = s.dt\n      AND a.appointment_time = s.tm\n      AND a.status = 'confirmed'\n  )\n),\n-- 2. اختيار أقدم مريض منتظر (pending) لنفس الدكتور واليوم وتحديث حالته إلى notified\nnext_patient AS (\n  UPDATE public.waitlist\n  SET status = 'notified',\n      notified_at = NOW(),\n      preferred_time = (SELECT tm FROM slot_info)\n  WHERE id = (\n    SELECT w.id FROM public.waitlist w, slot_info s\n    WHERE w.doctor_name = s.doc\n      AND w.preferred_date = s.dt\n      AND w.status = 'pending'\n      AND EXISTS (SELECT 1 FROM slot_free)\n    ORDER BY w.created_at ASC, w.id ASC\n    LIMIT 1\n  )\n  RETURNING id, patient_name, phone, doctor_name, preferred_date::text AS preferred_date, preferred_time\n)\nSELECT * FROM next_patient;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        280,
+        80
+      ],
+      "id": "93056331-fcef-4453-91e2-770b667eed48",
+      "name": "1. Verify Slot Free & Claim Next Waiting Patient",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const META_PHONE_NUMBER_ID = 'YOUR_WHATSAPP_PHONE_NUMBER_ID';\nconst META_ACCESS_TOKEN = 'YOUR_META_PERMANENT_ACCESS_TOKEN';\nconst OFFICIAL_WAITLIST_TEMPLATE = 'dental_waitlist_offer';\n\nconst item = $input.first()?.json;\nif (!item || !item.id) {\n  return [];\n}\n\nlet phone = String(item.phone || '').trim().replace(/^\\+/, '');\nif (phone.startsWith('01')) {\n  phone = '20' + phone.slice(1);\n}\n\nconst patientName = item.patient_name || 'عميلنا العزيز';\nconst doctorName = item.doctor_name || 'الطبيب المختص';\nconst cancelledDate = item.preferred_date;\nconst cancelledTime = item.preferred_time || '05:00 PM';\n\n// الـ 4 متغيرات بنفس ترتيب قالب dental_waitlist_offer في ميتا بالظبط:\n// {{1}}: اسم المريض | {{2}}: اسم الدكتور | {{3}}: التاريخ | {{4}}: الساعة\nconst templatePayload = {\n  messaging_product: 'whatsapp',\n  to: phone,\n  type: 'template',\n  template: {\n    name: OFFICIAL_WAITLIST_TEMPLATE,\n    language: { code: 'ar' },\n    components: [\n      {\n        type: 'body',\n        parameters: [\n          { type: 'text', text: patientName },\n          { type: 'text', text: doctorName },\n          { type: 'text', text: cancelledDate },\n          { type: 'text', text: cancelledTime }\n        ]\n      },\n      {\n        type: 'button',\n        sub_type: 'quick_reply',\n        index: '0',\n        parameters: [{ type: 'payload', payload: 'CLAIM_WAITLIST' }]\n      }\n    ]\n  }\n};\n\nreturn [{\n  json: {\n    waitlist_id: item.id,\n    phone: phone,\n    phone_number_id: META_PHONE_NUMBER_ID,\n    meta_access_token: META_ACCESS_TOKEN,\n    meta_payload: templatePayload\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        80
+      ],
+      "id": "3b571bd9-8792-4024-ad98-ba6c5d074197",
+      "name": "2. Prepare 4-Param Waitlist Meta Offer"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.meta_payload) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        80
+      ],
+      "id": "a23100cd-1e9d-4935-b113-0faa0c9be0db",
+      "name": "3. Send Offer via Meta"
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "minutes"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1180,
+        80
+      ],
+      "id": "e172e5fa-747f-4c57-99a5-3132bfea7eba",
+      "name": "4. Wait 15 Minutes For Patient Reply",
+      "webhookId": "wait-15m-clinic-waitlist"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.waitlist\nSET status = 'expired'\nWHERE id = {{ $('2. Prepare 4-Param Waitlist Meta Offer').item.json.waitlist_id }}\n  AND status = 'notified'\nRETURNING id AS expired_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1460,
+        80
+      ],
+      "id": "d0ff184b-5b9a-4851-949c-416117b5d0dc",
+      "name": "5. Expire If Unclaimed After 15m",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-exp",
+              "leftValue": "={{ Boolean($json.expired_id) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1740,
+        80
+      ],
+      "id": "ecc602ba-ba13-49d4-b788-5f3a0adeef10",
+      "name": "6. Did 15m Expire Without Claim?"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "1. Verify Slot Free & Claim Next Waiting Patient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Verify Slot Free & Claim Next Waiting Patient": {
+      "main": [
+        [
+          {
+            "node": "2. Prepare 4-Param Waitlist Meta Offer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Prepare 4-Param Waitlist Meta Offer": {
+      "main": [
+        [
+          {
+            "node": "3. Send Offer via Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Send Offer via Meta": {
+      "main": [
+        [
+          {
+            "node": "4. Wait 15 Minutes For Patient Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Wait 15 Minutes For Patient Reply": {
+      "main": [
+        [
+          {
+            "node": "5. Expire If Unclaimed After 15m",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Expire If Unclaimed After 15m": {
+      "main": [
+        [
+          {
+            "node": "6. Did 15m Expire Without Claim?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6. Did 15m Expire Without Claim?": {
+      "main": [
+        [
+          {
+            "node": "1. Verify Slot Free & Claim Next Waiting Patient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "YOUR_ERROR_WORKFLOW_ID",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "ff995cd5-dfab-46a4-8361-144d6994144d",
+  "meta": {
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "3bRAAstkIjZanaLB",
+  "tags": []
+}

@@ -1,0 +1,273 @@
+{
+  "name": "RAG Databaese",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# 🧠 الدليل الشامل: تغذية قاعدة المعرفة الطبية (RAG Vector Database Pipeline)\n### ماذا يفعل هذا الورك فلو؟\nيراقب ملف معلومات وأسعار ومواعيد العيادة على **Google Drive**؛ وبمجرد تعديل أي سعر أو موعد طبيب داخل الملف، يقوم بتحويل النص إلى متجهات ذكية (Embeddings) وحفظها في جدول `documents` داخل Supabase ليقرأها الـ AI Agent فوراً بدون تعديل أي كود!\n\n---\n### 📋 شرح النودز بالتفصيل:\n1. **`Google Drive Trigger` & `Download file` (المنطقة الزرقاء):** يراقب ملف العيادة على Google Drive ويحمله فور تحديثه.\n2. **`Extract from File` (المنطقة الصفراء):** يستخرج النصوص الكاملة من الملف.\n3. **`Supabase Vector Store` + `Embeddings OpenAI` + `Default Data Loader` (المنطقة الخضراء):** يقسم النص ويحوله إلى Embeddings عبر OpenAI ويخزنه في جدول `documents` لدعم البحث الدلالي (`match_documents`).",
+        "height": 640,
+        "width": 580,
+        "color": 5
+      },
+      "id": "sticky-rag-guide",
+      "name": "Sticky Note - RAG Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -800,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟦 1. مراقبة وتحميل ملف العيادة من Google Drive\nيلتقط أي تحديث في ملف الأسعار والمواعيد ويحمله تلقائياً.",
+        "height": 340,
+        "width": 500,
+        "color": 5
+      },
+      "id": "sticky-rag-sec1",
+      "name": "Sticky Note - RAG Sec 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -180,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟨 2. استخراج النصوص\nيحول الملف إلى نص خام جاهز للفهرسة.",
+        "height": 340,
+        "width": 260,
+        "color": 1
+      },
+      "id": "sticky-rag-sec2",
+      "name": "Sticky Note - RAG Sec 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        350,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟩 3. بناء المتجهات الذكية والحفظ في Supabase Vector Store\nيحول المعلومات إلى Embeddings عبر OpenAI ويحدث قاعدة معرفة الـ AI Agent.",
+        "height": 580,
+        "width": 480,
+        "color": 4
+      },
+      "id": "sticky-rag-sec3",
+      "name": "Sticky Note - RAG Sec 3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": []
+        },
+        "triggerOn": "specificFile",
+        "fileToWatch": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_DOC_ID",
+          "mode": "list",
+          "cachedResultName": " clinic_knowledge texst",
+          "cachedResultUrl": "https://docs.google.com/document/d/YOUR_GOOGLE_DOC_ID/edit"
+        }
+      },
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        -140,
+        40
+      ],
+      "id": "bf37dd4e-7358-475f-a2eb-80af79ac3123",
+      "name": "Google Drive Trigger",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        420,
+        40
+      ],
+      "id": "647e84e6-07b4-4c63-b313-b4e5726cdd37",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {
+          "queryName": "match_documents"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        740,
+        40
+      ],
+      "id": "4071e719-9560-4652-9305-3c88ab234494",
+      "name": "Supabase Vector Store",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        300
+      ],
+      "id": "2144b538-eb98-459d-9b75-1bae21fe85d3",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "options": {
+          "batchSize": 150
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        680,
+        300
+      ],
+      "id": "841ce7f4-715e-4b00-b4af-ded54952f491",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_DRIVE_FILE_ID",
+          "mode": "list",
+          "cachedResultName": "_clinic_knowledge.txt",
+          "cachedResultUrl": "https://drive.google.com/file/d/YOUR_GOOGLE_DRIVE_FILE_ID/view"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        140,
+        40
+      ],
+      "id": "9f764d4e-12e5-468b-a2f5-10a43dd1cf8b",
+      "name": "Download file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "YOUR_GOOGLE_DRIVE_CREDENTIAL_ID",
+          "name": "Google Drive account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Drive Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "c87853c0-854c-419d-96e1-23e7528564e0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "mzfuV275GYOpYwi6",
+  "tags": []
+}

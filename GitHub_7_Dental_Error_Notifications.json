@@ -1,0 +1,146 @@
+{
+  "name": "Error Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# 🚨 الدليل الشامل: نظام المراقبة والإنذار المبكر للأخطاء (Error Monitoring System)\n### ماذا يفعل هذا الورك فلو؟\nيعمل كحارس ذكي 24/7 لجميع ورك فلوهات العيادة؛ في حال حدوث أي عطل تقني أو انقطاع في أي نود، يلتقط الخطأ فوراً ويرسل تقريراً مفصلاً عبر **Telegram** و **Gmail** يحتوي على اسم الورك فلو، اسم النود، سبب الخطأ، ورابط الفحص المباشر.\n\n---\n### 📋 شرح النودز بالتفصيل:\n1. **`Error Trigger` (المنطقة الحمراء):** يعمل تلقائياً فور فشل أي ورك فلو مربوط به.\n2. **`Send a text message` (المنطقة الزرقاء - Telegram):** يرسل إشعار طوارئ فوري للمهندس/المسؤول على تليجرام.\n3. **`Send a message` (المنطقة البرتقالية - Gmail):** يرسل بريد إلكتروني رسمي بتفاصيل الخطأ ورابط الـ Execution.",
+        "height": 540,
+        "width": 580,
+        "color": 5
+      },
+      "id": "sticky-err-guide",
+      "name": "Sticky Note - Error Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟥 1. التقاط أي عطل تقني لحظياً\nيستقبل تفاصيل الخطأ من أي ورك فلو في المنظومة.",
+        "height": 480,
+        "width": 280,
+        "color": 3
+      },
+      "id": "sticky-err-sec1",
+      "name": "Sticky Note - Error Sec 1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟧 2. إرسال تنبيهات الطوارئ الفورية (Telegram + Gmail)\nيرسل اسم الورك فلو والنود المسببة للخطأ ورابط الإصلاح المباشر.",
+        "height": 480,
+        "width": 360,
+        "color": 2
+      },
+      "id": "sticky-err-sec2",
+      "name": "Sticky Note - Error Sec 2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        280,
+        -60
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        120
+      ],
+      "id": "f840dc3d-07eb-4e4d-a7bb-4f5de0936ab4",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🚨 تنبيه: حدث خطأ في النظام!\n\nاسم الـ Workflow:\n{{ $json.workflow.name }}\n\nالنود المسببة للخطأ:\n{{ $json.execution.error.node.name }}\n\nرابط الخطأ للفحص المباشر:\n{{ $json.execution.url }}\n\nتفاصيل الخطأ:\n{{ $json.execution.error.message }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        380,
+        20
+      ],
+      "id": "f1b50f1c-9bad-4bd1-8dd5-ec03d490ab2f",
+      "name": "Send a text message",
+      "webhookId": "f9f78092-2385-439a-b080-6e73d6912267",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "your-alert-email@example.com",
+        "subject": "=🚨 [Alert] Workflow Execution Failed: {{ $json.workflow.name }}",
+        "message": "=Hi,\n\nAn error occurred during the execution of your n8n workflow.\n\n• Workflow Name: {{ $json.workflow.name }}\n• Failed Node: {{ $json.execution.error.node.name }}\n• Error Message: {{ $json.execution.error.message }}\n\nExecution URL:\n{{ $json.execution.url }}\n\nPlease inspect the execution log to resolve the issue.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        380,
+        240
+      ],
+      "id": "b1065a02-9aa4-43af-a9e0-b9aaa93e0a6e",
+      "name": "Send a message",
+      "webhookId": "9777569e-2fe9-4cce-bc6a-77bf23b4b12a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "8c06669c-3ae6-4a86-8c7a-a998ff99bc53",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "YOUR_ERROR_WORKFLOW_ID",
+  "tags": []
+}

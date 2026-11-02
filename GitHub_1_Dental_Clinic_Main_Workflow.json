@@ -1,0 +1,2687 @@
+{
+  "name": "1_Dental_Clinic_Main_Workflow_FINAL (All-in-One Production)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# 🦷 الدليل الشامل للورك فلو الأساسي (عيادة دنتال كير)\n### كيف تقرأ وتراجع هذا الورك فلو بسهولة؟\nتم تقسيم الورك فلو إلى **8 مناطق ملونة**، كل لون يمثل وظيفة محددة ومستقلة:\n\n---\n### 🟦 1. المنطقة الزرقاء (الاستقبال والأمان والفلترة - على اليمين مباشرة):\n- **`Webhook` & `Check Verify Token`**: تستقبل رسائل ميتا الرسمية وتؤكد اشتراك الـ Webhook.\n- **`Ack Message`**: ترد فوراً بـ `200 OK` على ميتا لمنع إعادة الإرسال.\n- **`Clinic Config & Parse Meta`**: العقل الموزع؛ يحتوي على التوكنات، ويوحد أرقام مصر (`201` و `01`)، ويعزل اللايكات (`reaction`)، ويفرز نوع الرسالة (`action_button`, `rating_button`, `text`, `audio`, `image`, `status_update`).\n- **`Log & Check Deduplication (DB)`**: تسجل الرسالة وتمنع التكرار (`is_new`)، وتفحص هل البوت متوقف للتدخل البشري (`bot_paused`)، وتحدث صح القراءة (`sent/delivered/read`).\n- **`Mark as Read & Typing (Meta)`**: تظهر للمريض علامتي الصح الزرقاء 🔵✓✓ وجملة *\"يكتب الآن...\"*.\n- **`Route by Message Type`**: الموزع الرئيسي الذي يوجه كل رسالة إلى لونها المخصص.\n\n---\n### 🟩 2. المنطقة الخضراء العلوية (أزرار القوالب الرسمية وقفل القرار):\n- تعالج ضغطات (`تأكيد الحضور`، `إلغاء الموعد`، `تأكيد الحجز الآن` من الانتظار).\n- تقفل القرار بعد أول ضغطة (`decision_locked = TRUE`) لمنع التلاعب، وتشغل الـ Waitlist فوراً عند الإلغاء.\n\n---\n### 🟨 3. المنطقة الصفراء (تجميع الرسائل المتقطعة - Buffer 6 ثواني):\n- تحفظ رسائل المريض المتتالية وتنتظر **6 ثواني** لتجميعها في جملة واحدة قبل دخولها للـ AI Agent.\n\n---\n### 🟪 4. المنطقة البنفسجية (الفويس إيجنت - OpenAI Whisper):\n- تحمل الريكورد الصوتي من ميتا -> تفرغه لنص عربي عبر `Whisper` -> وتصبه في `Save Incoming Message` ليدخل للـ AI Agent كأنه نص مكتوب.\n\n---\n### 🟧 5. المنطقة البرتقالية (الأشعة والروشتات + حالات الرسائل):\n- تحول صور الأشعة والروشتات فوراً لواتساب المساعد وجروب تليجرام العيادة مع رابط الشات.\n\n---\n### 🟩 6. المنطقة الخضراء الكبيرة (الـ AI Agent + الـ RAG + 12 أداة):\n- **`AI Agent`**: مربوط بـ `OpenAI gpt-4.1-mini` + `Gemini 2.5 Flash Fallback` + ذاكرة `Postgres Chat Memory`.\n- يقرأ المواعيد والأسعار حصرياً من **`dental_knowledge_base` (الـ RAG)**، ويلزم المريض بكتابة الـ 5 بيانات بنفسه، ويرسل رسالة تأكيد واحدة شاملة الكالندر والـ GPS.\n\n---\n### 🟦 7. المنطقة السماوية أقصى اليمين (إشعار تليجرام الدكتور + شيت جوجل):\n- تراقب جدول المواعيد بعد رد البوت؛ إذا تم حجز جديد ترسل فوراً كارت تليجرام للدكتور بالرابط القصير وتحدث Google Sheets.\n\n---\n### 🟥 8. المنطقة الحمراء/الوردية السفلية (نظام تقييم جوجل مابس 1-5 نجوم):\n- ترسل التقييم بعد الكشف بـ 4 ساعات: من **3 إلى 5 نجوم** ترسل رابط Google Maps العلني، ومن **1 إلى 2 نجمة** تحجب الرابط وترسل إنذاراً لتليجرام الإدارة.",
+        "height": 1960,
+        "width": 960,
+        "color": 5
+      },
+      "id": "sticky-master-guide",
+      "name": "Sticky Note - Master Guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1080,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟦 1. قسم الاستقبال والإعدادات ومنع التكرار والتوجيه (Webhook & Router)\n- **ماذا يفعل؟** يستقبل رسائل الواتساب من ميتا، يتحقق من عدم تكرار الرسالة (`is_new`)، ويتأكد أن البوت غير متوقف للتدخل البشري (`bot_paused = false`)، ثم يظهر للمريض علامتي الصح الزرقاء 🔵✓✓ و*\"يكتب الآن...\"*.\n- **أين تعدل بيانات العيادة؟** داخل نود **`Clinic Config & Parse Meta`** فقط (التوكن، رابط خريطة العيادة GPS، ورابط تقييم جوجل مابس).\n- **إلى أين يوصل؟** يسلم نود **`Route by Message Type`** التي توزع الرسالة على المسارات الـ 6 بالأسفل.",
+        "height": 680,
+        "width": 1140,
+        "color": 5
+      },
+      "id": "sticky-sec-1-webhook",
+      "name": "Sticky Note - Sec 1 Webhook",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟩 2. قسم أزرار القوالب الرسمية وقفل القرار (Action Buttons: Confirm / Cancel / Waitlist)\n- **من أين يأتي؟** من المخرج الأول (`Action_Button`) في نود `Route by Message Type` عندما يضغط المريض على زر في تيمبلت التذكير أو الانتظار.\n- **ماذا يفعل؟** ينفذ التأكيد أو الإلغاء أو حجز الانتظار مباشرة في Supabase، ويقفل القرار (`decision_locked = TRUE`) حتى لا يتمكن المريض من الضغط على الزر المعاكس، وإذا كان إلغاءً يضرب Webhook قائمة الانتظار فوراً (`Trigger Waitlist Immediately`).",
+        "height": 300,
+        "width": 1340,
+        "color": 4
+      },
+      "id": "sticky-sec-2-buttons",
+      "name": "Sticky Note - Sec 2 Buttons",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        -280
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟨 3. قسم تجميع رسائل المريض المتقطعة (Wait 6s Buffer & Combine)\n- **من أين يأتي؟** من المخرج الثالث (`Text`) في `Route by Message Type` ومن مخرج الفويس إيجنت بعد تحويل الصوت لنص.\n- **ماذا يفعل؟** يحفظ رسائل المريض المتتالية في جدول `whatsapp_message_buffer` وينتظر **6 ثواني**، ثم يدمج كل ما كتبه المريض في رسالة واحدة ويرسلها إلى **`AI Agent`** لمنع تعدد الردود.",
+        "height": 300,
+        "width": 1340,
+        "color": 1
+      },
+      "id": "sticky-sec-3-buffer",
+      "name": "Sticky Note - Sec 3 Buffer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟪 4. قسم الفويس إيجنت - تحويل الرسائل الصوتية لنص (Voice Agent - OpenAI Whisper)\n- **من أين يأتي؟** من المخرج الرابع (`Audio`) في نود `Route by Message Type` عندما يرسل المريض Voice Note.\n- **ماذا يفعل؟** يجلب رابط الصوت من ميتا -> يحمل الملف الصوتي -> يفرغه باللهجة المصرية عبر **`3. OpenAI Whisper Voice Agent`** -> ويسلمه لنود **`Save Incoming Message`** بالأعلى ليدخل للـ AI Agent كأنه رسالة نصية عادية.",
+        "height": 300,
+        "width": 1340,
+        "color": 6
+      },
+      "id": "sticky-sec-4-voice",
+      "name": "Sticky Note - Sec 4 Voice Agent",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟧 5. قسم الصور والأشعة والروشتات + تحديث حالات الرسائل (Images & Statuses)\n- **مسار الصور (`Image`):** يحول صورة الأشعة أو الروشتة لواتساب المساعد (`Forward Image to Assistant`)، ويرد على المريض بتأكيد الاستلام، ثم يحمل الصورة ويرسلها لجروب **تليجرام العيادة (`3. Send Alert to Telegram`)** مرفقة برابط شات المريض.\n- **مسار الحالات (`Status_Update`):** يحدث حالة وصول وقراءة الرسائل الصادرة في قاعدة البيانات.",
+        "height": 480,
+        "width": 1340,
+        "color": 2
+      },
+      "id": "sticky-sec-5-media",
+      "name": "Sticky Note - Sec 5 Media & Status",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        740
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟩 6. عقل النظام: المساعد الذكي وأدوات قاعدة البيانات وقاعدة المعرفة (AI Agent + RAG + 12 Tools)\n- **الموديلات والذاكرة:** يعمل بموديل `OpenAI gpt-4.1-mini` ومعه `Google Gemini 2.5 Flash` كبديل طوارئ (Fallback)، ويحفظ سياق الحوار في `Postgres Chat Memory`.\n- **قاعدة المعرفة (`dental_knowledge_base` RAG):** يقرأ منها أسعار العيادة وأيام وساعات عمل كل دكتور حصرياً (يرفض أي حجز خارج ساعات الـ RAG).\n- **أدوات الحجز والانتظار والطوارئ:** يفحص المواعيد (`get_booked_slots_for_day`)، يفحص حجوزات المريض (`get_my_appointments`) وحالة انتظاره (`get_my_waitlist`)، وينفذ الحجز (`book_appointment`) فقط بعد أن يكتب المريض الـ 5 بيانات بنفسه، ثم يرسل رد التأكيد الواحد الشامل للكالندر والـ GPS عبر **`Send WhatsApp Reply (Meta Official)`**.",
+        "height": 1020,
+        "width": 1760,
+        "color": 4
+      },
+      "id": "sticky-sec-6-ai-agent",
+      "name": "Sticky Note - Sec 6 AI Agent",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2500,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟦 7. قسم إشعارات ما بعد الحجز الفوري (تليجرام الدكتور بالرابط القصير + Google Sheets)\n- **متى يعمل؟** بعد رد الـ AI أو تأكيد حجز من الانتظار، تفحص نود **`Check If New Booking Created`** هل تم تسجيل حجز جديد في جدول `appointments` لم يُرسل إشعاره بعد (`confirmation_links_sent = false`).\n- **ماذا يرسل؟**\n  1. **`3_Send_Doctor_Booking_Alert_Telegram`**: يرسل كارت الحجز الكامل لجروب تليجرام الدكتور مع **الرابط القصير المخفي (`📲 اضغط هنا لمراسلة المريض على واتساب فوراً`)**.\n  2. **`3B_Sync_Event_To_Google_Sheets_Webhook`**: يرسل إشارة فورية لورك فلو شيت جوجل لتحديث الجدول لايف.",
+        "height": 540,
+        "width": 940,
+        "color": 5
+      },
+      "id": "sticky-sec-7-post-booking",
+      "name": "Sticky Note - Sec 7 Post Booking",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4320,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟥 8. نظام تقييم جوجل مابس الذكي وفلترة الشكاوى (1-5 Stars Rating Engine)\n- **الصف الأول (إرسال التقييم أوتوماتيك بعد الزيارة بـ 4 ساعات):** يعمل المؤقت `4_Schedule_Every_Hour_Rating` كل ساعة ويجلب المواعيد المؤكدة التي مر على وقت كشفها من 4 إلى 20 ساعة، ويرسل للمريض قائمة التقييم التفاعلية من 1 إلى 5 نجوم على واتساب (`6_Send_1_To_5_Rating_List_WhatsApp`).\n- **الصف الثاني (معالجة ضغطة المريض على التقييم - المخرج الثاني `Rating_Button` من الموزع):**\n  - يحفظ الدرجة في Supabase (`9_Save_Rating_Score_Supabase`).\n  - **إذا اختار 3 أو 4 أو 5 نجوم:** يرسل للمريض رسالة شكر + **رابط تقييم العيادة العلني على Google Maps**.\n  - **إذا اختار 1 أو 2 نجمة:** يحجب رابط جوجل مابس تماماً، يعتذر للمريض، ويرسل **إنذاراً عاجلاً لتليجرام الدكتور (`10_Alert_Admin_If_1_Or_2_Stars_Telegram`)** برابط واتساب المريض لحل المشكلة فوراً.",
+        "height": 600,
+        "width": 1340,
+        "color": 3
+      },
+      "id": "sticky-sec-8-ratings",
+      "name": "Sticky Note - Sec 8 Ratings",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        1260
+      ]
+    },
+    {
+      "parameters": {
+        "multipleMethods": true,
+        "path": "egenyt-clinic-whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        120
+      ],
+      "webhookId": "f5d86c36-aa47-4b41-9f63-28d87f9dfc3c",
+      "id": "49af7dd7-29eb-46db-a5f0-ab62e1d0a4ff"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.query['hub.mode'] }}",
+              "rightValue": "subscribe",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.query['hub.verify_token'] }}",
+              "rightValue": "YOUR_WEBHOOK_VERIFY_TOKEN",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Check Verify Token",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        180,
+        -20
+      ],
+      "id": "435a2f58-c953-45d8-a142-48246c35827b"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $('Webhook').item.json.query['hub.challenge'] }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Return Challenge",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        -80
+      ],
+      "id": "662c8ddc-d332-4835-8c70-8111025fe75d"
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 403
+        }
+      },
+      "name": "Reject",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        60
+      ],
+      "id": "80028662-e71a-455d-aab1-fa4bfab76988"
+    },
+    {
+      "parameters": {
+        "respondWith": "noData",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Ack Message",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        180,
+        240
+      ],
+      "id": "78a58c92-b752-4249-8259-a19717bcb83e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === الإعدادات المركزية للعيادة وميتا وتليجرام ===\nconst META_ACCESS_TOKEN = 'YOUR_META_PERMANENT_ACCESS_TOKEN';\nconst FALLBACK_PHONE_NUMBER_ID = 'YOUR_WHATSAPP_PHONE_NUMBER_ID';\nconst ADMIN_EMERGENCY_PHONE = '201000000000';\nconst WAITLIST_WEBHOOK_URL = 'https://your-n8n-domain.example.com/webhook/appointment-cancelled';\nconst GOOGLE_SHEETS_WEBHOOK_URL = 'https://your-n8n-domain.example.com/webhook/clinic-sheets-sync';\nconst TELEGRAM_BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN';\nconst TELEGRAM_CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID';\nconst CLINIC_NAME = 'عيادة دنتال كير لطب وزراعة الأسنان';\nconst CLINIC_MAPS_GPS_URL = 'https://maps.google.com/?q=30.0276,31.4913';\nconst GOOGLE_MAPS_REVIEW_URL = 'https://search.google.com/local/writereview?placeid=PUT_YOUR_CLINIC_PLACE_ID_HERE';\n\nconst value = $('Webhook').first().json.body?.entry?.[0]?.changes?.[0]?.value;\nif (!value) return [];\n\nif (value.statuses?.length) {\n  return value.statuses.map(s => ({\n    json: {\n      type: 'status_update',\n      wamid: s.id,\n      status: s.status,\n      timestamp: Number(s.timestamp || Math.floor(Date.now() / 1000)),\n      recipient: String(s.recipient_id || '').replace(/^\\+/, ''),\n      error: s.errors?.[0] ? `${s.errors[0].code}: ${s.errors[0].title}` : null\n    }\n  }));\n}\n\nif (!value.messages?.length) {\n  return [];\n}\n\nconst contacts = value.contacts ?? [];\nconst isBsuid = v => /^[A-Z]{2}\\./.test(v ?? '');\n\nreturn value.messages.map(msg => {\n  const contact = contacts.find(c => c.wa_id === msg.from || (c.user_id && c.user_id === msg.from_user_id)) ?? contacts[0];\n\n  let rawPhone = String(msg.from || contact?.wa_id || '').trim().replace(/^\\+/, '');\n  if (rawPhone.startsWith('01')) {\n    rawPhone = '20' + rawPhone.slice(1);\n  }\n  const localPhone = rawPhone.startsWith('20') ? '0' + rawPhone.slice(2) : rawPhone;\n  const userId = msg.from_user_id ?? contact?.user_id ?? (isBsuid(msg.from) ? msg.from : null);\n  const replyTo = (!isBsuid(rawPhone) && rawPhone) ? rawPhone : (userId || rawPhone);\n\n  const buttonReplyId = msg.button?.payload\n    ?? msg.interactive?.button_reply?.id\n    ?? msg.interactive?.list_reply?.id\n    ?? null;\n\n  const buttonReplyTitle = msg.button?.text\n    ?? msg.interactive?.button_reply?.title\n    ?? msg.interactive?.list_reply?.title\n    ?? null;\n\n  let messageCategory = msg.type;\n  let extractedText = null;\n\n  if (msg.type === 'reaction' || msg.type === 'system') {\n    messageCategory = 'silent';\n    extractedText = msg.reaction?.emoji ?? 'system';\n  } else if (msg.type === 'location') {\n    messageCategory = 'text';\n    extractedText = `المريض أرسل موقعه الحالي على الخريطة: (${msg.location?.latitude}, ${msg.location?.longitude}) وهو يسأل عن عنوان العيادة أو كيفية الوصول إليها.`;\n  } else if (msg.type === 'text') {\n    extractedText = (msg.text?.body || '').trim();\n  } else if (buttonReplyId || buttonReplyTitle) {\n    const idKey = String(buttonReplyId || '').trim();\n    const titleKey = String(buttonReplyTitle || '').trim();\n    const combinedKey = idKey || titleKey;\n\n    if (combinedKey.startsWith('RATE_')) {\n      messageCategory = 'rating_button';\n      extractedText = combinedKey;\n    } else if (combinedKey === 'DOC_AHMED' || titleKey.includes('أحمد')) {\n      messageCategory = 'text';\n      extractedText = 'عايز أحجز مع دكتور أحمد سامي، إيه الأيام والساعات الفاضية عنده؟';\n    } else if (combinedKey === 'DOC_MARIAM' || titleKey.includes('مريم')) {\n      messageCategory = 'text';\n      extractedText = 'عايز أحجز مع دكتورة مريم كريم، إيه الأيام والساعات الفاضية عندها؟';\n    } else if (idKey === 'CLAIM_WAITLIST') {\n      messageCategory = 'action_button';\n      extractedText = 'CLAIM_WAITLIST';\n    } else if (idKey === 'CONFIRM_APPT') {\n      messageCategory = 'action_button';\n      extractedText = 'CONFIRM_APPT';\n    } else if (idKey === 'CANCEL_APPT' || titleKey.includes('إلغاء') || idKey.includes('إلغاء')) {\n      messageCategory = 'action_button';\n      extractedText = 'CANCEL_APPT';\n    } else if (titleKey.includes('تأكيد') || idKey.includes('تأكيد')) {\n      messageCategory = 'action_button';\n      extractedText = 'CONFIRM_OR_CLAIM_AUTO';\n    } else {\n      messageCategory = 'text';\n      extractedText = titleKey || idKey;\n    }\n  }\n\n  return {\n    json: {\n      phone_number_id: value.metadata?.phone_number_id || FALLBACK_PHONE_NUMBER_ID,\n      meta_access_token: META_ACCESS_TOKEN,\n      admin_emergency_phone: ADMIN_EMERGENCY_PHONE,\n      waitlist_webhook_url: WAITLIST_WEBHOOK_URL,\n      google_sheets_webhook_url: GOOGLE_SHEETS_WEBHOOK_URL,\n      telegram_bot_token: TELEGRAM_BOT_TOKEN,\n      telegram_chat_id: TELEGRAM_CHAT_ID,\n      clinic_name: CLINIC_NAME,\n      clinic_maps_gps_url: CLINIC_MAPS_GPS_URL,\n      google_maps_review_url: GOOGLE_MAPS_REVIEW_URL,\n      session_id: rawPhone || replyTo,\n      phone: rawPhone,\n      local_phone: localPhone,\n      user_id: userId,\n      reply_to: replyTo,\n      name: contact?.profile?.name ?? 'عميلنا العزيز',\n      message_id: msg.id,\n      reply_to_message_id: msg.context?.id ?? null,\n      received_at: msg.timestamp ? new Date(Number(msg.timestamp) * 1000).toISOString() : new Date().toISOString(),\n      type: messageCategory,\n      message: extractedText,\n      button_action: extractedText,\n      media_id: msg.image?.id ?? msg.audio?.id ?? msg.document?.id ?? null,\n      caption: msg.image?.caption ?? 'بدون تعليق'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        240
+      ],
+      "id": "ff41d13f-fc96-4416-bfba-6337a0eefea9",
+      "name": "Clinic Config & Parse Meta"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Clinic Config & Parse Meta').item.json.type }}",
+                    "rightValue": "action_button",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Action_Button"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Clinic Config & Parse Meta').item.json.type }}",
+                    "rightValue": "rating_button",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Rating_Button"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Clinic Config & Parse Meta').item.json.type }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Text"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Clinic Config & Parse Meta').item.json.type }}",
+                    "rightValue": "audio",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Audio"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Clinic Config & Parse Meta').item.json.type }}",
+                    "rightValue": "image",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Image"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Clinic Config & Parse Meta').item.json.type }}",
+                    "rightValue": "status_update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Status_Update"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        960,
+        240
+      ],
+      "id": "fe6e5ac2-510f-4044-ab60-3597e8812bfd",
+      "name": "Route by Message Type"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH raw_act AS (\n  SELECT\n    '{{ $('Clinic Config & Parse Meta').first().json.button_action }}'::text AS raw_action,\n    '{{ $('Clinic Config & Parse Meta').first().json.phone }}'::text AS p_intl,\n    '{{ $('Clinic Config & Parse Meta').first().json.local_phone }}'::text AS p_local,\n    RIGHT('{{ $('Clinic Config & Parse Meta').first().json.phone }}', 10) AS p_last10\n),\nact AS (\n  SELECT\n    CASE\n      WHEN raw_action IN ('CONFIRM_OR_CLAIM_AUTO', 'CONFIRM_APPT') AND EXISTS (\n        SELECT 1 FROM public.waitlist w\n        WHERE (w.phone IN (p_intl, p_local) OR RIGHT(REGEXP_REPLACE(w.phone, '[^0-9]', '', 'g'), 10) = p_last10)\n          AND w.status = 'notified'\n      ) THEN 'CLAIM_WAITLIST'\n      WHEN raw_action = 'CONFIRM_OR_CLAIM_AUTO' THEN 'CONFIRM_APPT'\n      ELSE raw_action\n    END AS action,\n    p_intl,\n    p_local,\n    p_last10\n  FROM raw_act\n),\ntarget_appt AS (\n  SELECT id, doctor_name, appointment_date::text AS appointment_date, appointment_time, status, COALESCE(decision_locked, false) AS decision_locked\n  FROM public.appointments\n  WHERE (phone IN ((SELECT p_intl FROM act), (SELECT p_local FROM act)) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = (SELECT p_last10 FROM act))\n    AND appointment_date >= CURRENT_DATE\n  ORDER BY (status = 'confirmed') DESC, appointment_date ASC, id DESC\n  LIMIT 1\n),\nconfirmed_update AS (\n  UPDATE public.appointments\n  SET decision_locked = TRUE,\n      decision_at = NOW(),\n      notes = 'تم تأكيد الحضور من زر التيمبلت'\n  WHERE id = (SELECT id FROM target_appt WHERE status = 'confirmed' AND decision_locked = FALSE)\n    AND (SELECT action FROM act) = 'CONFIRM_APPT'\n  RETURNING id, doctor_name, appointment_date::text AS appointment_date, appointment_time\n),\ncancelled_appt AS (\n  UPDATE public.appointments\n  SET status = 'cancelled',\n      decision_locked = TRUE,\n      decision_at = NOW(),\n      notes = 'تم الإلغاء من زر التيمبلت'\n  WHERE id = (SELECT id FROM target_appt WHERE status = 'confirmed' AND decision_locked = FALSE)\n    AND (SELECT action FROM act) = 'CANCEL_APPT'\n  RETURNING id, doctor_name, appointment_date::text AS appointment_date, appointment_time\n),\ncancelled_wait AS (\n  UPDATE public.waitlist\n  SET status = 'cancelled'\n  WHERE id = (\n    SELECT id FROM public.waitlist\n    WHERE (phone IN ((SELECT p_intl FROM act), (SELECT p_local FROM act)) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = (SELECT p_last10 FROM act))\n      AND status IN ('pending', 'notified')\n    ORDER BY id DESC LIMIT 1\n  ) AND (SELECT action FROM act) = 'CANCEL_APPT'\n    AND NOT EXISTS (SELECT 1 FROM target_appt WHERE decision_locked = TRUE)\n  RETURNING id\n),\ncandidate_wait AS (\n  SELECT id, patient_name, phone, doctor_name, preferred_date, preferred_time\n  FROM public.waitlist\n  WHERE (phone IN ((SELECT p_intl FROM act), (SELECT p_local FROM act)) OR RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = (SELECT p_last10 FROM act))\n    AND status = 'notified'\n  ORDER BY id DESC LIMIT 1\n),\nslot_still_free AS (\n  SELECT 1 AS is_free\n  FROM candidate_wait cw\n  WHERE NOT EXISTS (\n    SELECT 1 FROM public.appointments a\n    WHERE a.doctor_name = cw.doctor_name\n      AND a.appointment_date = cw.preferred_date\n      AND a.appointment_time = cw.preferred_time\n      AND a.status = 'confirmed'\n  )\n),\nclaimed_wait AS (\n  UPDATE public.waitlist\n  SET status = 'confirmed'\n  WHERE id = (SELECT id FROM candidate_wait)\n    AND EXISTS (SELECT 1 FROM slot_still_free)\n    AND (SELECT action FROM act) = 'CLAIM_WAITLIST'\n  RETURNING id, patient_name, phone, doctor_name, preferred_date, preferred_time\n),\ninserted_from_wait AS (\n  INSERT INTO public.appointments (\n    patient_name, phone, doctor_name, appointment_date, appointment_time,\n    status, reminder_24h_sent, reminder_3h_sent, decision_locked, decision_at, notes\n  )\n  SELECT\n    patient_name, (SELECT p_intl FROM act), doctor_name, preferred_date, preferred_time,\n    'confirmed', false, false, true, NOW(), 'تم الحجز والترقية من قائمة الانتظار'\n  FROM claimed_wait\n  ON CONFLICT DO NOTHING\n  RETURNING id, doctor_name, appointment_date::text AS appointment_date, appointment_time\n)\nSELECT\n  (SELECT action FROM act) AS executed_action,\n  (SELECT id FROM target_appt) AS target_appt_id,\n  (SELECT status FROM target_appt) AS prev_status,\n  (SELECT decision_locked FROM target_appt) AS was_already_locked,\n  (SELECT doctor_name FROM target_appt) AS target_doctor,\n  (SELECT appointment_date FROM target_appt) AS target_date,\n  (SELECT appointment_time FROM target_appt) AS target_time,\n  (SELECT id FROM confirmed_update) AS newly_confirmed_id,\n  (SELECT id FROM cancelled_appt) AS cancelled_appt_id,\n  (SELECT doctor_name FROM cancelled_appt) AS cancelled_doctor,\n  (SELECT appointment_date FROM cancelled_appt) AS cancelled_date,\n  (SELECT appointment_time FROM cancelled_appt) AS cancelled_time,\n  (SELECT id FROM cancelled_wait) AS cancelled_wait_id,\n  (SELECT id FROM inserted_from_wait) AS new_waitlist_appt_id,\n  (SELECT doctor_name FROM inserted_from_wait) AS waitlist_doctor,\n  (SELECT appointment_date FROM inserted_from_wait) AS waitlist_date,\n  (SELECT appointment_time FROM inserted_from_wait) AS waitlist_time;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1160,
+        -160
+      ],
+      "id": "7a9c4605-fcbc-40ed-a7dc-9ecf4943704a",
+      "name": "Execute Button DB Action First",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const db = $input.first().json;\nconst cfg = $('Clinic Config & Parse Meta').first().json;\n\nlet replyText = '';\nlet shouldNotifyWaitlist = false;\n\nif (db.executed_action === 'CONFIRM_APPT') {\n  if (db.newly_confirmed_id) {\n    replyText = `تم تأكيد حضورك وتثبيت موعدك نهائياً بنجاح يا فندم! ✅🦷\\nموعدك المسجل مع (${db.target_doctor}) يوم (${db.target_date}) الساعة (${db.target_time}).\\nفي انتظار تشريفك للعيادة بكل سرور 😊🤍.`;\n  } else if (db.was_already_locked && db.prev_status === 'confirmed') {\n    replyText = `يا فندم حضرتك قمت بتأكيد هذا الموعد مسبقاً (${db.target_doctor} - يوم ${db.target_date} الساعة ${db.target_time}) وتم قفل أزرار هذه الرسالة لمنع التضارب 🔒🦷.\\nفي انتظار تشريفك للعيادة، ولو حابب تستفسر عن أي شيء اكتب لنا رسالة نصية 😊🤍.`;\n  } else if (db.was_already_locked && db.prev_status === 'cancelled') {\n    replyText = `عفواً يا فندم، لقد قمت بإلغاء هذا الموعد مسبقاً وتم قفل خيارات هذه الرسالة وإتاحة الموعد لمريض آخر 🔒🦷.\\nلحجز موعد جديد يرجى كتابة طلبك في رسالة نصية الآن وهنساعدك فوراً 😊🤍.`;\n  } else {\n    replyText = 'أهلاً بحضرتك يا فندم 🦷. لم نجد حجزاً قادماً نشطاً مسجلاً حالياً، لو حابب تحجز ميعاد جديد اكتب لنا وهنساعدك فوراً 😊🤍.';\n  }\n} else if (db.executed_action === 'CANCEL_APPT') {\n  if (db.cancelled_appt_id) {\n    shouldNotifyWaitlist = true;\n    replyText = `تم إلغاء موعدك المسجل مع (${db.cancelled_doctor}) يوم (${db.cancelled_date}) الساعة (${db.cancelled_time}) بنجاح من النظام 🦷.\\nنتمنى لك دوام الصحة والعافية، وتقدر تحجز في أي وقت آخر يناسبك 😊🤍.`;\n  } else if (db.was_already_locked && db.prev_status === 'confirmed') {\n    replyText = `عفواً يا فندم 🔒، لقد قمت بالضغط على زر (تأكيد الحضور) وتثبيت هذا الموعد مسبقاً، لذلك تم قفل زر الإلغاء في هذه الرسالة حفاظاً على دقة جدول العيادة 🦷.\\nإذا طرأ ظرف طارئ وترغب في الإلغاء أو التعديل، يرجى كتابة \"أريد إلغاء موعدي\" في رسالة نصية الآن 😊🤍.`;\n  } else if (db.was_already_locked && db.prev_status === 'cancelled') {\n    replyText = `يا فندم تم إلغاء هذا الموعد مسبقاً بالفعل ولا يوجد حجز نشط لإلغائه مرة أخرى 🔒🦷.`;\n  } else if (db.cancelled_wait_id) {\n    replyText = 'تم إلغاء طلبك من قائمة الانتظار بنجاح يا فندم 🦷🤍.';\n  } else {\n    replyText = 'عفواً يا فندم، لا يوجد أي حجز قادم نشط مسجل برقم حضرتك حالياً لإلغائه 🦷.';\n  }\n} else if (db.executed_action === 'CLAIM_WAITLIST') {\n  if (db.new_waitlist_appt_id) {\n    replyText = `مبروك يا فندم! 🎉 تم نقل حجزك من قائمة الانتظار وتأكيده بنجاح في جدول العيادة مع (${db.waitlist_doctor}) يوم (${db.waitlist_date}) الساعة (${db.waitlist_time}) 🦷✨.\\nفي انتظار تشريفك في الموعد المحدد 😊🤍.`;\n  } else {\n    replyText = 'بعتذر لحضرتك جداً يا فندم، يبدو أن مهلة الـ 15 دقيقة انتهت أو تم حجز الميعاد الشاغر بالفعل 🦷. سنبلغك فور توفر أقرب ميعاد آخر 😊🤍.';\n  }\n}\n\nreturn [{\n  json: {\n    phone: cfg.phone,\n    local_phone: cfg.local_phone,\n    phone_number_id: cfg.phone_number_id,\n    meta_access_token: cfg.meta_access_token,\n    waitlist_webhook_url: cfg.waitlist_webhook_url,\n    reply_text: replyText,\n    should_notify_waitlist: shouldNotifyWaitlist,\n    new_waitlist_appt_id: db.new_waitlist_appt_id,\n    cancelled_doctor: db.cancelled_doctor,\n    cancelled_date: db.cancelled_date,\n    cancelled_time: db.cancelled_time\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        -160
+      ],
+      "id": "0ab2462f-5449-461a-9e10-c774ca5b3475",
+      "name": "Verify DB Result & Build Reply"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": {{ JSON.stringify($json.reply_text) }}\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1680,
+        -160
+      ],
+      "id": "51418023-4490-4a4d-9801-6ce5804927f2",
+      "name": "Send Verified Button Reply"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Verify DB Result & Build Reply').item.json.should_notify_waitlist }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1940,
+        -160
+      ],
+      "id": "ef41686e-4818-4b1b-b502-25b46a963b98",
+      "name": "Was Appointment Cancelled?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Verify DB Result & Build Reply').item.json.waitlist_webhook_url }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "doctor_name",
+              "value": "={{ $('Verify DB Result & Build Reply').item.json.cancelled_doctor }}"
+            },
+            {
+              "name": "appointment_date",
+              "value": "={{ $('Verify DB Result & Build Reply').item.json.cancelled_date }}"
+            },
+            {
+              "name": "appointment_time",
+              "value": "={{ $('Verify DB Result & Build Reply').item.json.cancelled_time }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2200,
+        -160
+      ],
+      "id": "cf9f96c3-3dd2-4308-a755-ad71e76e9c27",
+      "name": "Trigger Waitlist Immediately"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v21.0/' + $('Clinic Config & Parse Meta').first().json.phone_number_id + '/messages' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Clinic Config & Parse Meta').item.json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  messaging_product: 'whatsapp',\n  to: $('Clinic Config & Parse Meta').first().json.phone,\n  type: 'text',\n  text: {\n    body: 'تم استلام الصورة/الأشعة بنجاح يا فندم 🦷✨.\\nطبيب الأسنان المختص هيراجعها مع حضرتك بالتفصيل أثناء الكشف السريري.\\nممكن تكتب لنا في رسالة نصية بتشتكي من إيه حالياً، أو تحب نحجز لحضرتك أقرب موعد للكشف؟ 😊🤍'\n  }\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1420,
+        900
+      ],
+      "id": "0ba0b921-44ab-4bea-a075-40c82d964dde",
+      "name": "Reply Image Received (Meta)"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "whatsapp_message_buffer"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "session_id": "={{ $('Clinic Config & Parse Meta').item.json.session_id }}",
+            "phone": "={{ $('Clinic Config & Parse Meta').item.json.phone }}",
+            "message_id": "={{ $('Clinic Config & Parse Meta').item.json.message_id }}",
+            "message_text": "={{ $json.transcribed_voice_text || $('Clinic Config & Parse Meta').item.json.message }}",
+            "created_at": "={{ $('Clinic Config & Parse Meta').item.json.received_at }}",
+            "processed": false
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "session_id",
+              "displayName": "session_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_text",
+              "displayName": "message_text",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processed",
+              "displayName": "processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "batch_id",
+              "displayName": "batch_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1160,
+        200
+      ],
+      "id": "f2853e8d-edf9-47cc-86aa-5e7124e1e022",
+      "name": "Save Incoming Message",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 6
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1420,
+        200
+      ],
+      "id": "9808e269-85f7-406a-9fcd-9459ff57d6f5",
+      "name": "Wait 6s Buffer",
+      "webhookId": "4bd478e5-4b26-4597-99b2-3c283e1458e1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    id,\n    session_id,\n    phone,\n    message_id,\n    message_text,\n    created_at\nFROM public.whatsapp_message_buffer\nWHERE session_id = $1\n  AND processed = false\nORDER BY created_at ASC, id ASC;",
+        "options": {
+          "queryReplacement": "={{ $('Clinic Config & Parse Meta').item.json.session_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1680,
+        200
+      ],
+      "id": "5991fce9-46ba-4411-bddc-7b50aa4e0e7e",
+      "name": "Get Pending Messages",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const messages = $input.all();\nif (messages.length === 0) {\n  return [];\n}\n\nconst currentTriggerMsgId = $('Clinic Config & Parse Meta').first().json.message_id;\nconst lastPendingMsg = messages[messages.length - 1].json;\n\nif (lastPendingMsg.message_id && currentTriggerMsgId && lastPendingMsg.message_id !== currentTriggerMsgId) {\n  return [];\n}\n\nconst config = $('Clinic Config & Parse Meta').first().json;\n\nconst combinedMessage = messages\n  .map(item => item.json.message_text)\n  .filter(Boolean)\n  .join(' ');\n\nconst messageIds = messages\n  .map(item => item.json.id)\n  .filter(Boolean);\n\nif (!combinedMessage.trim()) {\n  return [];\n}\n\nreturn [{\n  json: {\n    session_id: config.session_id,\n    phone: config.phone,\n    local_phone: config.local_phone,\n    patient_profile_name: config.name,\n    phone_number_id: config.phone_number_id,\n    meta_access_token: config.meta_access_token,\n    admin_emergency_phone: config.admin_emergency_phone,\n    waitlist_webhook_url: config.waitlist_webhook_url,\n    combined_message: combinedMessage,\n    message_ids: messageIds\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        200
+      ],
+      "id": "0973bfd7-9942-4190-89fb-64221784c3d2",
+      "name": "Combine & Deduplicate Lock"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.whatsapp_message_buffer\nSET processed = true\nWHERE id IN ({{ $json.message_ids.join(',') }});",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        2200,
+        200
+      ],
+      "id": "19c1606d-171e-49ae-bdba-c415d74aac36",
+      "name": "Mark Buffer Processed Immediately",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Combine & Deduplicate Lock').item.json.combined_message }}",
+        "needsFallback": true,
+        "options": {
+          "systemMessage": "=# Role & Identity\nYou are the official front-desk virtual assistant for \"Dental Care Clinic\" (عيادة دنتال كير لطب وجراحة وزراعة الأسنان).\n- Current Reference Date: {{ $now.format('YYYY-MM-DD') }} (Today is {{ $now.format('dddd') }}).\n- Client Session Phone (FOR CHECKING EXISTING APPOINTMENTS ONLY, NEVER FOR AUTO-FILLING NEW BOOKINGS!): {{ $('Combine & Deduplicate Lock').item.json.phone }}\n- Clinic Reception & Emergency Phone: {{ $('Combine & Deduplicate Lock').item.json.admin_emergency_phone }}\n- Clinic Google Maps GPS Link: {{ $('Clinic Config & Parse Meta').first().json.clinic_maps_gps_url }}\n\n# Language, Tone & Emoji Rules\n- Arabic Only: Communicate, process bookings, and reply ONLY in polite, concise Egyptian Arabic.\n- Zero Fabrication (100% RAG Grounded): You have ZERO internal knowledge about doctor schedules, working days, working hours, or prices. You MUST query `dental_knowledge_base` (RAG) for all clinic facts, prices, and doctor working hours. Never guess or invent any working hour or price from your own mind!\n\n---\n\n# Golden Rule 1: Execute & Verify in Database BEFORE Replying (Never Trust Chat Memory for Booking or Waitlist Status!)\n- NEVER rely on previous chat messages in memory to tell a patient whether their appointment or waitlist entry is active, confirmed, expired, or cancelled!\n- Whenever a patient asks about their appointment or waitlist status (\"أنا ليا حجز؟\", \"حجزي اتلغى ولا موجود؟\", \"يعني خلاص كده؟\", \"إيه أخبار قائمة الانتظار؟\"), you MUST call BOTH `get_my_appointments` AND `get_my_waitlist` FIRST in that exact turn and inspect the `status` field returned by the database:\n  * In `get_my_appointments`:\n    - If `status` is `\"cancelled\"`: Inform the patient that their appointment is currently **cancelled (ملغي)**, and you can re-book it if they wish.\n    - If `status` is `\"confirmed\"`: Inform them that their appointment is **confirmed (مؤكد)**.\n  * In `get_my_waitlist`:\n    - If `status` is `\"expired\"`: Inform the patient clearly that a slot had opened up and an offer was sent to them, but because the **15-minute confirmation window passed without clicking confirm**, the waitlist offer **expired (انتهت المهلة وألغي العرض)**. NEVER tell them they were \"just added to the waitlist\" when their status is `expired`! Ask if they would like to book another available slot.\n    - If `status` is `\"cancelled\"`: Inform them their waitlist entry is cancelled.\n    - If `status` is `\"pending\"`: Inform them they are still waiting on the waitlist.\n- NEVER call `add_to_waitlist` unless the patient explicitly asks to join the waitlist AND has provided all 5 required booking details in text!\n\n# Golden Rule 2: Strict RAG Working Hours Enforcement (`dental_knowledge_base`)\n- Before proposing available times, checking slots, or calling `book_appointment` / `reschedule_appointment`, you MUST FIRST call `dental_knowledge_base` to read the exact working days and start/end working hours of the requested doctor.\n- STRICT REFUSAL OUTSIDE RAG HOURS: If the patient asks to book an hour outside the doctor's working hours stated in `dental_knowledge_base` (e.g., asking for `09:00 PM` when the RAG states the doctor finishes at `08:00 PM`), you are **STRICTLY FORBIDDEN** from calling `book_appointment` even if the patient insists!\n\n# Golden Rule 3: STRICT 5-FIELD USER INPUT RULE (NO AUTO-FILLING NAME OR PHONE!)\n- The patient MUST explicitly type all 5 fields themselves in the chat before you are allowed to call `book_appointment` or `add_to_waitlist`:\n  1. Full Name (الاسم الثنائي أو الثلاثي الحقيقي - **STRICTLY FORBIDDEN** to write `\"عميل\"`, `\"عميلنا العزيز\"`, `\"مريض\"`, or a placeholder name! If the user did not type their real full name, DO NOT call `book_appointment`!)\n  2. Phone Number (رقم الموبايل مكتوباً بواسطة العميل في الشات - **STRICTLY FORBIDDEN** to auto-fill their WhatsApp phone if the user says \"احجزلي برقمي اللي بكلمك منه\" or \"احجزلي أنت بمعرفتك\"! Politely ask them to write their full name and phone number explicitly in the message so it is officially recorded!)\n  3. Doctor Name (اسم الدكتور)\n  4. Date (اليوم والتاريخ - `YYYY-MM-DD`)\n  5. Time (الساعة - e.g. `05:00 PM`)\n- If the user says \"احجزلي أنت\" or \"خد رقمي اللي بكلمك منه\" or misses even ONE of the 5 fields (especially Full Name or Phone Number), DO NOT call `book_appointment`! Instead, help them politely by replying:\n  \"عشان أقدر أسجل الحجز لحضرتك بشكل رسمي وصحيح في السيستم يا فندم، لازم حضرتك تكتبلي الـ 5 بيانات دول بنفسك في رسالة واحدة وهأكدلك الحجز فوراً 📋🦷:\n1️⃣ الاسم الثلاثي بالكامل:\n2️⃣ رقم الموبايل:\n3️⃣ اسم الدكتور:\n4️⃣ اليوم والتاريخ:\n5️⃣ الساعة المناسبة لحضرتك:\"\n\n---\n\n# Single Confirmation Message Protocol\nOnce the user has explicitly written all 5 fields (with a real full name, never \"عميل\") and you verified the slot is within RAG working hours and free via `get_booked_slots_for_day`:\n1. Call `book_appointment` and verify database success.\n2. Reply with ONLY this single, clean, well-organized confirmation message:\n\"تم تأكيد حجز موعدك بنجاح في عيادة دنتال كير للأسنان 🦷✨😊\n\n👤 الاسم: [اسم المريض الثلاثي]\n📞 الرقم: [رقم الموبايل]\n👨‍⚕️ الدكتور: [اسم الدكتور]\n📅 التاريخ: [YYYY-MM-DD]\n⏰ الساعة: [الساعة]\n\n📅 لإضافة الموعد في تقويم جوجل بضغطة واحدة:\nhttps://calendar.google.com/calendar/render?action=TEMPLATE&text=Dental+Care&dates=[YYYYMMDDTHHmm00]/[YYYYMMDDTHHmm00]\n\n📍 لوكيشن العيادة على الخريطة (Google Maps):\n{{ $('Clinic Config & Parse Meta').first().json.clinic_maps_gps_url }}\n\nنتمنى لحضرتك دوام الصحة والعافية! 🤍🌸\"\n\n---\n\n# Cancellation Protocol\n- When a user asks in text to cancel their booking:\n  1. Call `get_my_appointments` to find their active (`status = 'confirmed'`) appointment `id`, `doctor_name`, `appointment_date`, and `appointment_time`.\n  2. Call `cancel_appointment` using that `id`.\n  3. Immediately call `notify_Waitlist_Webhook` with (`doctor_name`, `appointment_date`, `appointment_time`).\n  4. Confirm cancellation to the client only after database verification."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        3160,
+        80
+      ],
+      "id": "0ac75ebe-8f20-4054-9e35-7d94d6bc5e80",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2600,
+        380
+      ],
+      "id": "05db41c7-a87e-406e-bab4-ee730226047c",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        2740,
+        380
+      ],
+      "id": "419bcc47-9e3d-4354-a45b-3133ec628212",
+      "name": "Google Gemini Fallback",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_GEMINI_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Combine & Deduplicate Lock').item.json.session_id }}",
+        "tableName": "whatsapp_chat_histories",
+        "contextWindowLength": 8
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.4,
+      "position": [
+        2880,
+        380
+      ],
+      "id": "ff16f8de-66b8-47d2-8887-e11d51c64424",
+      "name": "Postgres Chat Memory",
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "appointments",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "appointment_date",
+              "condition": "eq",
+              "keyValue": "={{ $fromAI('appointment_date', 'التاريخ بصيغة YYYY-MM-DD') }}"
+            },
+            {
+              "keyName": "doctor_name",
+              "condition": "eq",
+              "keyValue": "={{ $fromAI('doctor_name', 'اسم الطبيب مثل دكتور أحمد سامي أو دكتورة مريم كريم') }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "confirmed"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3040,
+        380
+      ],
+      "id": "a898444d-8503-4f0f-a31a-9d549ac7f728",
+      "name": "get_booked_slots_for_day",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "appointments",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "patient_name",
+              "fieldValue": "={{ $fromAI('patient_name', 'اسم المريض بالكامل') }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $fromAI('phone', 'رقم تليفون المريض بصيغة 201xxxxxxxxx') }}"
+            },
+            {
+              "fieldId": "doctor_name",
+              "fieldValue": "={{ $fromAI('doctor_name', 'اسم الطبيب') }}"
+            },
+            {
+              "fieldId": "appointment_date",
+              "fieldValue": "={{ $fromAI('appointment_date', 'تاريخ الحجز بصيغة YYYY-MM-DD') }}"
+            },
+            {
+              "fieldId": "appointment_time",
+              "fieldValue": "={{ $fromAI('appointment_time', 'وقت الموعد مثل 05:00 PM') }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "confirmed"
+            },
+            {
+              "fieldId": "reminder_24h_sent",
+              "fieldValue": "={{ false }}"
+            },
+            {
+              "fieldId": "reminder_3h_sent",
+              "fieldValue": "={{ false }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3180,
+        380
+      ],
+      "id": "8eabe045-7c5a-4719-a2a6-1a983ca094b7",
+      "name": "book_appointment",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "appointments",
+        "limit": 5,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $fromAI('phone', 'رقم هاتف المريض بصيغة 201xxxxxxxxx') }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3320,
+        380
+      ],
+      "id": "f139113b-ea2a-4839-8fd4-6e7b195d2e41",
+      "name": "get_my_appointments",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "appointments",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $fromAI('appointment_id', 'رقم الـ id الخاص بالحجز المراد تعديله من أداة get_my_appointments') }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "appointment_date",
+              "fieldValue": "={{ $fromAI('new_appointment_date', 'التاريخ الجديد بصيغة YYYY-MM-DD') }}"
+            },
+            {
+              "fieldId": "appointment_time",
+              "fieldValue": "={{ $fromAI('new_appointment_time', 'الوقت الجديد مثل 06:00 PM') }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3600,
+        380
+      ],
+      "id": "deac7a12-96c2-4bc5-85d6-d0aac62f5cbc",
+      "name": "reschedule_appointment",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "waitlist",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "patient_name",
+              "fieldValue": "={{ $fromAI('patient_name', 'اسم المريض بالكامل') }}"
+            },
+            {
+              "fieldId": "phone",
+              "fieldValue": "={{ $fromAI('phone_number', 'رقم الموبايل بصيغة 201xxxxxxxxx') }}"
+            },
+            {
+              "fieldId": "preferred_date",
+              "fieldValue": "={{ $fromAI('requested_date', 'التاريخ المطلوب YYYY-MM-DD') }}"
+            },
+            {
+              "fieldId": "doctor_name",
+              "fieldValue": "={{ $fromAI('doctor_name', 'اسم الطبيب') }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "pending"
+            },
+            {
+              "fieldId": "preferred_time",
+              "fieldValue": "={{ $fromAI('preferred_time', 'الوقت المطلوب مثل 05:00 PM') }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3740,
+        380
+      ],
+      "id": "2afa5b60-b03d-4d69-a82b-37925f06d4c9",
+      "name": "add_to_waitlist",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "appointments",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $fromAI('appointment_id', 'رقم الـ id الخاص بالحجز المراد إلغاؤه من أداة get_my_appointments') }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "cancelled"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3880,
+        380
+      ],
+      "id": "162965c6-e7c9-4011-82ef-6909e78bfebb",
+      "name": "cancel_appointment",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "waitlist",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $fromAI('phone', 'رقم هاتف المريض بصيغة 201xxxxxxxxx') }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "cancelled"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        4020,
+        380
+      ],
+      "id": "58bdabc3-e3c0-48eb-9684-ebee24549bef",
+      "name": "cancel_waitlist_entry",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Call this tool immediately after cancelling an appointment to notify waiting patients in the waitlist.",
+        "method": "POST",
+        "url": "={{ $('Combine & Deduplicate Lock').item.json.waitlist_webhook_url }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "doctor_name",
+              "value": "={{ $fromAI('doctor_name', 'اسم الطبيب الخاص بالموعد الملغى') }}"
+            },
+            {
+              "name": "appointment_date",
+              "value": "={{ $fromAI('appointment_date', 'تاريخ الموعد الملغى YYYY-MM-DD') }}"
+            },
+            {
+              "name": "appointment_time",
+              "value": "={{ $fromAI('appointment_time', 'وقت الموعد الملغى مثل 05:00 PM') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        3040,
+        600
+      ],
+      "id": "f193ae4d-b22b-420f-93d0-11b25026c83e",
+      "name": "notify_Waitlist_Webhook",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "toolDescription": "Use this tool when a client wants to book or asks about doctors so they can choose a doctor via interactive WhatsApp buttons.",
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Combine & Deduplicate Lock').item.json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Combine & Deduplicate Lock').item.json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('Combine & Deduplicate Lock').item.json.phone }}\",\n  \"type\": \"interactive\",\n  \"interactive\": {\n    \"type\": \"button\",\n    \"body\": {\n      \"text\": \"أهلاً بحضرتك في عيادة دنتال كير للأسنان 🦷✨\\nيرجى اختيار الطبيب المختص بالضغط على الزر بالأسفل لعرض المواعيد الفاضية المتاحة:\"\n    },\n    \"action\": {\n      \"buttons\": [\n        {\n          \"type\": \"reply\",\n          \"reply\": {\n            \"id\": \"DOC_AHMED\",\n            \"title\": \"👨‍⚕️ د. أحمد (جراحة/عصب)\"\n          }\n        },\n        {\n          \"type\": \"reply\",\n          \"reply\": {\n            \"id\": \"DOC_MARIAM\",\n            \"title\": \"👩‍⚕️ د. مريم (تجميل/تقويم)\"\n          }\n        }\n      ]\n    }\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        3240,
+        600
+      ],
+      "id": "50933c72-1ce9-48d3-b8fe-f2cd7aa9192b",
+      "name": "send_doctors_buttons"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Use this tool when greeting a new client for the first time OR when the client explicitly asks for clinic photos or location.",
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Combine & Deduplicate Lock').item.json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Combine & Deduplicate Lock').item.json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('Combine & Deduplicate Lock').item.json.phone }}\",\n  \"type\": \"image\",\n  \"image\": {\n    \"link\": \"https://your-project.supabase.co/storage/v1/object/public/media/clinic-photo.jpeg\",\n    \"caption\": \"عيادة دنتال كير لطب وزراعة الأسنان 🦷✨ - القاهرة الجديدة، التجمع الخامس، شارع التسعين الشمالي، مول تريفيوم، الدور الثالث عيادة 305.\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        3440,
+        600
+      ],
+      "id": "87ff6a1c-e2b6-4d4b-8f04-fdd651edb006",
+      "name": "send_clinic_media"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Use this tool ONLY in severe dental emergencies (severe bleeding after extraction, facial swelling, trauma) to alert the clinic doctor immediately.",
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Combine & Deduplicate Lock').item.json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Combine & Deduplicate Lock').item.json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('Combine & Deduplicate Lock').item.json.admin_emergency_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": {{ JSON.stringify('🚨 طوارئ أسنان عاجلة!\\nالمريض: ' + $('Combine & Deduplicate Lock').item.json.patient_profile_name + '\\nرقم الموبايل: +' + $('Combine & Deduplicate Lock').item.json.phone + '\\nالشكوى الطارئة: ' + $fromAI('emergency_summary', 'ملخص الحالة الطارئة للمريض')) }}\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.5,
+      "position": [
+        3640,
+        600
+      ],
+      "id": "4ab2030f-9adf-4df8-afb4-68e61d79f0e4",
+      "name": "notify_dental_emergency"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Query this knowledge base for all dental clinic facts: prices of dental procedures, working hours, clinic address, doctor names and schedules, and post-treatment dental instructions.",
+        "tableName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "documents"
+        },
+        "includeDocumentMetadata": false,
+        "options": {
+          "queryName": "match_documents"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        3880,
+        600
+      ],
+      "id": "25c1f3ad-bb12-4a4a-922c-b0156de23d90",
+      "name": "dental_knowledge_base",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        4060,
+        740
+      ],
+      "id": "278c341c-3578-4bf9-9fa3-fa3ee884cbe0",
+      "name": "Embeddings OpenAI1",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Combine & Deduplicate Lock').item.json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Combine & Deduplicate Lock').item.json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ $('Combine & Deduplicate Lock').item.json.phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"preview_url\": false,\n    \"body\": {{ JSON.stringify($('AI Agent').item.json.output) }}\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3760,
+        80
+      ],
+      "id": "75b7ae67-f8ee-4ce2-bbc2-a0a0a4ae49df",
+      "name": "Send WhatsApp Reply (Meta Official)",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/v21.0/' + $('Clinic Config & Parse Meta').first().json.phone_number_id + '/messages' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Clinic Config & Parse Meta').first().json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  messaging_product: 'whatsapp',\n  to: $('Clinic Config & Parse Meta').first().json.admin_emergency_phone,\n  type: 'image',\n  image: {\n    id: $('Clinic Config & Parse Meta').first().json.media_id,\n    caption: '🚨 روشتة/أشعة جديدة من المريض:\\n👤 الاسم: ' + $('Clinic Config & Parse Meta').first().json.name + '\\n📱 الرقم: ' + $('Clinic Config & Parse Meta').first().json.phone + '\\n📝 تعليق المريض: ' + $('Clinic Config & Parse Meta').first().json.caption\n  }\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1160,
+        900
+      ],
+      "name": "Forward Image to Assistant",
+      "id": "1f9494a9-2e2b-479f-a8b5-259301ea4299"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://graph.facebook.com/v21.0/' + $('Clinic Config & Parse Meta').first().json.media_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Clinic Config & Parse Meta').first().json.meta_access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "77b76d95-4df6-436f-82bb-9646d5e49884",
+      "name": "1. Get WhatsApp Media URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Clinic Config & Parse Meta').first().json.meta_access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "8aede12a-8c9f-446c-8c5c-a9d11c04eb72",
+      "name": "2. Download Media File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1940,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/botYOUR_TELEGRAM_BOT_TOKEN/sendPhoto",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "YOUR_TELEGRAM_CHAT_ID"
+            },
+            {
+              "name": "caption",
+              "value": "={{ '🚨 روشتة / أشعة جديدة من مريض:\\n\\n👤 الاسم: ' + $('Clinic Config & Parse Meta').first().json.name + '\\n📱 الرقم: ' + $('Clinic Config & Parse Meta').first().json.phone + '\\n📝 تعليق المريض: ' + $('Clinic Config & Parse Meta').first().json.caption + '\\n\\n💬 اضغط هنا لفتح شات المريض فوراً على واتساب:\\nhttps://wa.me/' + $('Clinic Config & Parse Meta').first().json.phone }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "photo",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1c0da82c-18ad-4920-9360-761da10b491e",
+      "name": "3. Send Alert to Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH payload AS (\n  SELECT '{{ JSON.stringify($json).replace(/'/g, \"''\") }}'::jsonb AS d\n),\n-- 1. إذا كان الإشعار تحديث حالة رسالة صادرة (sent / delivered / read / played / failed) يسجله في عمود status ويحدث الأوقات تلقائياً في سطر واحد\nstatus_upsert AS (\n  INSERT INTO public.whatsapp_message_logs (\n    wa_message_id, phone, direction, message_type, content, status,\n    sent_at, delivered_at, read_at, played_at, failed_at, error\n  )\n  SELECT\n    d->>'wamid',\n    COALESCE(NULLIF(d->>'recipient', ''), 'unknown'),\n    'outgoing',\n    'status_update',\n    'رسالة صادرة من العيادة',\n    d->>'status',\n    CASE WHEN (d->>'status') IN ('sent', 'delivered', 'read', 'played') THEN NOW() ELSE NULL END,\n    CASE WHEN (d->>'status') IN ('delivered', 'read', 'played') THEN NOW() ELSE NULL END,\n    CASE WHEN (d->>'status') IN ('read', 'played') THEN NOW() ELSE NULL END,\n    CASE WHEN (d->>'status') = 'played' THEN NOW() ELSE NULL END,\n    CASE WHEN (d->>'status') = 'failed' THEN NOW() ELSE NULL END,\n    NULLIF(d->>'error', '')\n  FROM payload\n  WHERE (d->>'type') = 'status_update' AND NULLIF(d->>'wamid', '') IS NOT NULL\n  ON CONFLICT (wa_message_id) DO UPDATE\n  SET status = EXCLUDED.status,\n      sent_at = COALESCE(public.whatsapp_message_logs.sent_at, EXCLUDED.sent_at),\n      delivered_at = COALESCE(public.whatsapp_message_logs.delivered_at, EXCLUDED.delivered_at),\n      read_at = COALESCE(public.whatsapp_message_logs.read_at, EXCLUDED.read_at),\n      played_at = COALESCE(public.whatsapp_message_logs.played_at, EXCLUDED.played_at),\n      failed_at = COALESCE(public.whatsapp_message_logs.failed_at, EXCLUDED.failed_at),\n      error = COALESCE(EXCLUDED.error, public.whatsapp_message_logs.error)\n  RETURNING id\n),\n-- 2. إذا كانت رسالة واردة من المريض (incoming) يفحص عدم التكرار (is_new)\nlog_ins AS (\n  INSERT INTO public.whatsapp_message_logs (\n    wa_message_id, phone, user_id, direction, message_type, content, button_reply, context_wa_message_id\n  )\n  SELECT\n    d->>'message_id',\n    COALESCE(NULLIF(d->>'phone', ''), 'unknown'),\n    COALESCE(d->>'user_id', ''),\n    'incoming',\n    COALESCE(d->>'type', 'text'),\n    COALESCE(d->>'message', ''),\n    COALESCE(d->>'button_action', ''),\n    COALESCE(d->>'reply_to_message_id', '')\n  FROM payload\n  WHERE (d->>'type') <> 'status_update' AND NULLIF(d->>'message_id', '') IS NOT NULL\n  ON CONFLICT (wa_message_id) DO UPDATE SET wa_message_id = EXCLUDED.wa_message_id\n  RETURNING (xmax = 0) AS is_new\n),\nsess_upd AS (\n  INSERT INTO public.patient_sessions (phone, patient_name, last_inbound_at, unread_count)\n  SELECT\n    COALESCE(NULLIF(d->>'phone', ''), 'unknown'),\n    COALESCE(NULLIF(d->>'name', ''), 'عميلنا العزيز'),\n    NOW(),\n    1\n  FROM payload\n  WHERE (d->>'type') <> 'status_update' AND NULLIF(d->>'phone', '') IS NOT NULL\n  ON CONFLICT (phone) DO UPDATE\n  SET last_inbound_at = NOW(),\n      patient_name = COALESCE(EXCLUDED.patient_name, public.patient_sessions.patient_name),\n      unread_count = public.patient_sessions.unread_count + 1\n  RETURNING bot_paused\n)\nSELECT\n  CASE\n    WHEN (SELECT d->>'type' FROM payload) IN ('status_update', 'silent') THEN false\n    ELSE COALESCE((SELECT is_new FROM log_ins LIMIT 1), true)\n  END AS is_new,\n  COALESCE((SELECT bot_paused FROM sess_upd LIMIT 1), false) AS bot_paused;",
+        "options": {}
+      },
+      "id": "node-dedup-and-session-log",
+      "name": "Log & Check Deduplication (DB)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        580,
+        240
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-is-new",
+              "leftValue": "={{ $json.is_new }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-not-paused",
+              "leftValue": "={{ $json.bot_paused }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-new-and-active",
+      "name": "Is New & Bot Active?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        780,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Clinic Config & Parse Meta').item.json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Clinic Config & Parse Meta').item.json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: $('Clinic Config & Parse Meta').item.json.message_id, typing_indicator: { type: 'text' } }) }}",
+        "options": {}
+      },
+      "id": "node-mark-read-typing",
+      "name": "Mark as Read & Typing (Meta)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        780,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v21.0/{{ $('Clinic Config & Parse Meta').item.json.media_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Clinic Config & Parse Meta').item.json.meta_access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-voice-1-get-url",
+      "name": "1. Get Voice Note URL (Meta)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1160,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Clinic Config & Parse Meta').item.json.meta_access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "node-voice-2-download",
+      "name": "2. Download Voice Note File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1420,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "binaryPropertyName": "data",
+        "options": {
+          "language": "ar"
+        }
+      },
+      "id": "node-voice-3-whisper",
+      "name": "3. OpenAI Whisper Voice Agent",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1680,
+        560
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const transcribed = ($input.first().json.text || '').trim();\nreturn [{\n  json: {\n    transcribed_voice_text: transcribed || 'رسالة صوتية غير واضحة'\n  }\n}];"
+      },
+      "id": "node-voice-4-format",
+      "name": "4. Prepare Transcribed Voice Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH payload AS (\n  SELECT '{{ JSON.stringify($('Clinic Config & Parse Meta').item.json).replace(/'/g, \"''\") }}'::jsonb AS d\n)\nUPDATE public.whatsapp_message_logs\nSET status = (SELECT d->>'status' FROM payload),\n    error = COALESCE(NULLIF((SELECT d->>'error' FROM payload), ''), error)\nWHERE wa_message_id = (SELECT d->>'wamid' FROM payload);",
+        "options": {}
+      },
+      "id": "node-update-wa-status",
+      "name": "Update Outgoing Message Status (DB)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        1160,
+        1080
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.appointments\nSET confirmation_links_sent = TRUE\nWHERE id = (\n  SELECT id FROM public.appointments\n  WHERE phone IN ('{{ $('Clinic Config & Parse Meta').first().json.phone }}', '{{ $('Clinic Config & Parse Meta').first().json.local_phone }}')\n    AND status = 'confirmed'\n    AND confirmation_links_sent = FALSE\n    AND created_at >= NOW() - INTERVAL '10 minutes'\n  ORDER BY id DESC LIMIT 1\n)\nRETURNING id, patient_name, phone, doctor_name, appointment_date::text AS appointment_date, appointment_time, COALESCE(service_type, 'كشف أسنان') AS service_type;",
+        "options": {}
+      },
+      "id": "node-check-new-booking",
+      "name": "Check If New Booking Created",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        4400,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first()?.json;\nif (!item || !item.id) {\n  return [];\n}\n\nconst cfg = $('Clinic Config & Parse Meta').first().json;\nconst patientName = item.patient_name || cfg.name || 'عميلنا العزيز';\nconst doctorName = item.doctor_name || 'الطبيب المختص';\nconst dateStr = item.appointment_date;\nconst timeStr = item.appointment_time;\nconst serviceType = item.service_type || 'كشف أسنان';\n\nlet cleanPhone = String(item.phone || cfg.phone || '').replace(/[^0-9]/g, '');\nif (cleanPhone.startsWith('01')) {\n  cleanPhone = '2' + cleanPhone;\n}\n\nconst clinicName = cfg.clinic_name || 'عيادة دنتال كير لطب وزراعة الأسنان';\nconst prefilledWaMsg = encodeURIComponent(`أهلاً بحضرتك يا أ/ ${patientName}، بنأكد معاك حجزك في ${clinicName} مع ${doctorName} يوم ${dateStr} الساعة ${timeStr}.`);\nconst whatsappShortLink = `https://wa.me/${cleanPhone}?text=${prefilledWaMsg}`;\n\nconst doctorTelegramHtml =\n`✅ <b>حجز موعد جديد بالعيادة! (#${item.id})</b>\n\n👤 <b>اسم المريض:</b> ${patientName}\n👨‍⚕️ <b>اسم الدكتور:</b> ${doctorName}\n🦷 <b>الخدمة:</b> ${serviceType}\n📅 <b>التاريخ:</b> ${dateStr}\n⏰ <b>الوقت:</b> ${timeStr}\n📞 <b>رقم التليفون:</b> <code>+${cleanPhone}</code>\n\n📲 <a href=\"${whatsappShortLink}\">اضغط هنا لمراسلة المريض على واتساب فوراً</a>`;\n\nreturn [{\n  json: {\n    appointment_id: item.id,\n    event_type: 'BOOKED',\n    patient_name: patientName,\n    patient_phone: cleanPhone,\n    doctor_name: doctorName,\n    service_type: serviceType,\n    appointment_date: dateStr,\n    appointment_time: timeStr,\n    status: 'مؤكد (Confirmed)',\n    telegram_bot_token: cfg.telegram_bot_token,\n    telegram_chat_id: cfg.telegram_chat_id,\n    google_sheets_webhook_url: cfg.google_sheets_webhook_url || 'https://your-n8n-domain.example.com/webhook/clinic-sheets-sync',\n    doctor_telegram_html: doctorTelegramHtml\n  }\n}];"
+      },
+      "id": "add76dc8-af04-42e5-96d0-7a28a7a5b0d4",
+      "name": "1_Build_Booking_Links_And_Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4660,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $json.telegram_bot_token }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $json.telegram_chat_id }}\",\n  \"parse_mode\": \"HTML\",\n  \"disable_web_page_preview\": true,\n  \"text\": {{ JSON.stringify($json.doctor_telegram_html) }}\n}",
+        "options": {}
+      },
+      "id": "08e5f20c-d481-44f4-95e2-b155120aa001",
+      "name": "3_Send_Doctor_Booking_Alert_Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4960,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "626cc032-bfc8-407d-a675-60d99f47e603",
+      "name": "4_Schedule_Every_Hour_Rating",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        1160,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, patient_name, phone AS patient_phone, doctor_name, appointment_date::text AS appointment_date, appointment_time\nFROM public.appointments\nWHERE status = 'confirmed'\n  AND review_requested = FALSE\n  AND appointment_date <= CURRENT_DATE;",
+        "options": {}
+      },
+      "id": "893dd31a-2f57-40d1-bf19-c51942418025",
+      "name": "5_Get_Completed_Appointments_Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1420,
+        1400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// فلترة المواعيد التي مر على وقتها من 4 إلى 20 ساعة (داخل نافذة الـ 24 ساعة في ميتا)\nconst items = $input.all();\nconst now = new Date();\nconst results = [];\n\nfor (const wrapped of items) {\n  const item = wrapped.json;\n  if (!item || !item.id) continue;\n  const [year, month, day] = String(item.appointment_date).split('-').map(Number);\n  const cleanTime = String(item.appointment_time || '05:00 PM').trim().toUpperCase();\n  const match = cleanTime.match(/(\\d{1,2}):(\\d{2})\\s*(AM|PM)?/);\n  let hours = match ? parseInt(match[1], 10) : 17;\n  const minutes = match ? parseInt(match[2], 10) : 0;\n  const period = match ? match[3] : null;\n  if (period === 'PM' && hours < 12) hours += 12;\n  if (period === 'AM' && hours === 12) hours = 0;\n\n  const apptTime = new Date(`${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}T${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:00+02:00`);\n  const hoursSinceAppt = (now - apptTime) / (1000 * 60 * 60);\n\n  if (hoursSinceAppt >= 4 && hoursSinceAppt <= 20) {\n    let phone = String(item.patient_phone || '').replace(/[^0-9]/g, '');\n    if (phone.startsWith('01')) phone = '2' + phone;\n    results.push({\n      json: {\n        ...item,\n        patient_phone: phone\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "node-filter-4h-passed",
+      "name": "5B_Filter_4h_After_Visit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/YOUR_WHATSAPP_PHONE_NUMBER_ID/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_META_PERMANENT_ACCESS_TOKEN"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"{{ $json.patient_phone }}\",\n  \"type\": \"interactive\",\n  \"interactive\": {\n    \"type\": \"list\",\n    \"header\": {\n      \"type\": \"text\",\n      \"text\": \"تقييم زيارتك للعيادة 🦷✨\"\n    },\n    \"body\": {\n      \"text\": \"أهلاً بحضرتك يا أ/ {{ $json.patient_name }} 🌸\\nحمداً لله على سلامتك بعد زيارتك اليوم مع ({{ $json.doctor_name }}).\\n\\nرأيك يهمنا جداً، كيف تقيم تجربتك معنا اليوم من 1 إلى 5؟\"\n    },\n    \"footer\": {\n      \"text\": \"اضغط على الزر بالأسفل لاختيار التقييم\"\n    },\n    \"action\": {\n      \"button\": \"⭐ اختر التقييم (1-5)\",\n      \"sections\": [\n        {\n          \"title\": \"اختر التقييم المناسب\",\n          \"rows\": [\n            {\n              \"id\": \"RATE_5_{{ $json.id }}\",\n              \"title\": \"⭐⭐⭐⭐⭐ ممتاز (5/5)\",\n              \"description\": \"خدمة ممتازة وتجربة رائعة\"\n            },\n            {\n              \"id\": \"RATE_4_{{ $json.id }}\",\n              \"title\": \"⭐⭐⭐⭐ جيد جداً (4/5)\",\n              \"description\": \"خدمة جيدة جداً\"\n            },\n            {\n              \"id\": \"RATE_3_{{ $json.id }}\",\n              \"title\": \"⭐⭐⭐ جيد (3/5)\",\n              \"description\": \"خدمة جيدة\"\n            },\n            {\n              \"id\": \"RATE_2_{{ $json.id }}\",\n              \"title\": \"⭐⭐ مقبول (2/5)\",\n              \"description\": \"واجهت بعض الملاحظات\"\n            },\n            {\n              \"id\": \"RATE_1_{{ $json.id }}\",\n              \"title\": \"⭐ غير راضٍ (1/5)\",\n              \"description\": \"واجهت مشكلة في الزيارة\"\n            }\n          ]\n        }\n      ]\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "a789ff52-566c-46a8-963d-d13337fbbfaf",
+      "name": "6_Send_1_To_5_Rating_List_WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1940,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.appointments SET review_requested = TRUE WHERE id = {{ $('5B_Filter_4h_After_Visit').item.json.id }};",
+        "options": {}
+      },
+      "id": "2c78c668-98bc-461a-89ab-5245faad712d",
+      "name": "7_Mark_Review_Requested_Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2200,
+        1400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Clinic Config & Parse Meta').first().json;\nconst buttonId = String(cfg.button_action || ''); // مثل RATE_5_120\nconst patientPhone = cfg.phone;\nconst patientName = cfg.name || 'المريض';\nconst googleMapsReviewUrl = cfg.google_maps_review_url;\n\nconst parts = buttonId.split('_');\nconst score = parseInt(parts[1], 10) || 5;\nconst appointmentId = parseInt(parts[2], 10) || 0;\n\nif (score >= 3) {\n  // من 3 إلى 5 نجوم -> نبعت للمريض رابط تقييم Google Maps\n  const replyToCustomer =\n`شكراً جزيلاً لحضرتك على تقييمك الإيجابي (${score}/5)! 🌟🌸\n\nيسعدنا ويشرفنا جداً لو شاركت تجربتك في ثواني على خرائط جوجل (Google Maps) من خلال الضغط على هذا الرابط المباشر:\n${googleMapsReviewUrl}\n\nنتمنى لك دوام الصحة والابتسامة الجميلة! 🦷✨`;\n\n  return [{\n    json: {\n      score: score,\n      appointment_id: appointmentId,\n      patient_phone: patientPhone,\n      phone_number_id: cfg.phone_number_id,\n      meta_access_token: cfg.meta_access_token,\n      telegram_bot_token: cfg.telegram_bot_token,\n      telegram_chat_id: cfg.telegram_chat_id,\n      is_low_rating_alert: false,\n      customer_reply_text: replyToCustomer,\n      admin_telegram_alert: ''\n    }\n  }];\n} else {\n  // 1 أو 2 نجمة -> نحجب رابط جوجل مابس ونعتذر للمريض ونبعت إنذار فوري للدكتور على تليجرام\n  const replyToCustomer =\n`شكراً لصراحتك معنا 🌸\nنعتذر بشدة عن أي تقصير أو ملاحظة واجهتك اليوم (تقييمك: ${score}/5).\n\nتم تحويل ملاحظتك فوراً لمدير العيادة والدكتور المختص وسنتواصل مع حضرتك شخصياً لحل المشكلة فوراً، لأن رضاك هو أولويتنا دائماً. 🦷🤍`;\n\n  const waLink = `https://wa.me/${patientPhone}`;\n  const adminAlertHtml =\n`⚠️ <b>تنبيه عاجل: تقييم منخفض من مريض (${score}/5 نجوم)!</b>\n\n👤 <b>اسم المريض:</b> ${patientName}\n📞 <b>رقم الهاتف:</b> <code>+${patientPhone}</code>\n🔢 <b>رقم الحجز:</b> #${appointmentId}\n⭐ <b>التقييم المختار:</b> ${score} من 5\n\n📲 <a href=\"${waLink}\">اضغط هنا للتواصل مع المريض فوراً وحل المشكلة</a>`;\n\n  return [{\n    json: {\n      score: score,\n      appointment_id: appointmentId,\n      patient_phone: patientPhone,\n      phone_number_id: cfg.phone_number_id,\n      meta_access_token: cfg.meta_access_token,\n      telegram_bot_token: cfg.telegram_bot_token,\n      telegram_chat_id: cfg.telegram_chat_id,\n      is_low_rating_alert: true,\n      customer_reply_text: replyToCustomer,\n      admin_telegram_alert: adminAlertHtml\n    }\n  }];\n}"
+      },
+      "id": "80f1b591-f0d8-4329-a1d5-bdae8b5c5451",
+      "name": "8_Process_Customer_Rating_1_To_5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        1660
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE public.appointments SET rating_score = {{ $json.score }} WHERE id = {{ $json.appointment_id }};",
+        "options": {}
+      },
+      "id": "4725672d-ae40-454c-a7d5-3e99c2587058",
+      "name": "9_Save_Rating_Score_Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1420,
+        1660
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $('8_Process_Customer_Rating_1_To_5').item.json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('8_Process_Customer_Rating_1_To_5').item.json.meta_access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $('8_Process_Customer_Rating_1_To_5').item.json.patient_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"preview_url\": true,\n    \"body\": {{ JSON.stringify($('8_Process_Customer_Rating_1_To_5').item.json.customer_reply_text) }}\n  }\n}",
+        "options": {}
+      },
+      "id": "node-send-rating-reply-wa",
+      "name": "9B_Send_Rating_Reply_To_Customer_WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        1660
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-low-rating",
+              "leftValue": "={{ $('8_Process_Customer_Rating_1_To_5').item.json.is_low_rating_alert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if-low-rating",
+      "name": "Is Low Rating (1 or 2)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1940,
+        1660
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('8_Process_Customer_Rating_1_To_5').item.json.telegram_bot_token }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $('8_Process_Customer_Rating_1_To_5').item.json.telegram_chat_id }}\",\n  \"parse_mode\": \"HTML\",\n  \"disable_web_page_preview\": true,\n  \"text\": {{ JSON.stringify($('8_Process_Customer_Rating_1_To_5').item.json.admin_telegram_alert) }}\n}",
+        "options": {}
+      },
+      "id": "30e57e2a-7ce6-4f2e-9681-a3ff7000a436",
+      "name": "10_Alert_Admin_If_1_Or_2_Stars_Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        1660
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.google_sheets_webhook_url || 'https://your-n8n-domain.example.com/webhook/clinic-sheets-sync' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  appointment_id: $json.appointment_id,\n  event_type: $json.event_type || 'UPDATE',\n  patient_name: $json.patient_name,\n  phone: $json.patient_phone || $json.phone,\n  doctor_name: $json.doctor_name,\n  appointment_date: $json.appointment_date,\n  appointment_time: $json.appointment_time,\n  status: $json.status,\n  updated_at: new Date().toISOString()\n}) }}",
+        "options": {}
+      },
+      "id": "node-sync-to-sheets-webhook",
+      "name": "3B_Sync_Event_To_Google_Sheets_Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4960,
+        220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "waitlist",
+        "limit": 5,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "phone",
+              "condition": "eq",
+              "keyValue": "={{ $fromAI('phone', 'رقم هاتف المريض بصيغة 201xxxxxxxxx') }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3460,
+        380
+      ],
+      "id": "tool-get-my-waitlist-status",
+      "name": "get_my_waitlist",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "Supabase account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Verify Token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Verify Token": {
+      "main": [
+        [
+          {
+            "node": "Return Challenge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack Message": {
+      "main": [
+        [
+          {
+            "node": "Clinic Config & Parse Meta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clinic Config & Parse Meta": {
+      "main": [
+        [
+          {
+            "node": "Log & Check Deduplication (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Message Type": {
+      "main": [
+        [
+          {
+            "node": "Execute Button DB Action First",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "8_Process_Customer_Rating_1_To_5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Incoming Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "1. Get Voice Note URL (Meta)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Forward Image to Assistant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Outgoing Message Status (DB)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Button DB Action First": {
+      "main": [
+        [
+          {
+            "node": "Verify DB Result & Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify DB Result & Build Reply": {
+      "main": [
+        [
+          {
+            "node": "Send Verified Button Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Verified Button Reply": {
+      "main": [
+        [
+          {
+            "node": "Was Appointment Cancelled?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check If New Booking Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Was Appointment Cancelled?": {
+      "main": [
+        [
+          {
+            "node": "Trigger Waitlist Immediately",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Incoming Message": {
+      "main": [
+        [
+          {
+            "node": "Wait 6s Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 6s Buffer": {
+      "main": [
+        [
+          {
+            "node": "Get Pending Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Pending Messages": {
+      "main": [
+        [
+          {
+            "node": "Combine & Deduplicate Lock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine & Deduplicate Lock": {
+      "main": [
+        [
+          {
+            "node": "Mark Buffer Processed Immediately",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Buffer Processed Immediately": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply (Meta Official)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Fallback": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_booked_slots_for_day": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "book_appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_my_appointments": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "reschedule_appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add_to_waitlist": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cancel_appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cancel_waitlist_entry": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notify_Waitlist_Webhook": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_doctors_buttons": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_clinic_media": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notify_dental_emergency": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "dental_knowledge_base": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "dental_knowledge_base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward Image to Assistant": {
+      "main": [
+        [
+          {
+            "node": "Reply Image Received (Meta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Get WhatsApp Media URL": {
+      "main": [
+        [
+          {
+            "node": "2. Download Media File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Download Media File": {
+      "main": [
+        [
+          {
+            "node": "3. Send Alert to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply Image Received (Meta)": {
+      "main": [
+        [
+          {
+            "node": "1. Get WhatsApp Media URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Send Alert to Telegram": {
+      "main": [
+        []
+      ]
+    },
+    "Send WhatsApp Reply (Meta Official)": {
+      "main": [
+        [
+          {
+            "node": "Check If New Booking Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log & Check Deduplication (DB)": {
+      "main": [
+        [
+          {
+            "node": "Is New & Bot Active?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New & Bot Active?": {
+      "main": [
+        [
+          {
+            "node": "Mark as Read & Typing (Meta)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Mark as Read & Typing (Meta)": {
+      "main": [
+        [
+          {
+            "node": "Route by Message Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Get Voice Note URL (Meta)": {
+      "main": [
+        [
+          {
+            "node": "2. Download Voice Note File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Download Voice Note File": {
+      "main": [
+        [
+          {
+            "node": "3. OpenAI Whisper Voice Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. OpenAI Whisper Voice Agent": {
+      "main": [
+        [
+          {
+            "node": "4. Prepare Transcribed Voice Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Prepare Transcribed Voice Text": {
+      "main": [
+        [
+          {
+            "node": "Save Incoming Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If New Booking Created": {
+      "main": [
+        [
+          {
+            "node": "1_Build_Booking_Links_And_Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1_Build_Booking_Links_And_Messages": {
+      "main": [
+        [
+          {
+            "node": "3_Send_Doctor_Booking_Alert_Telegram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "3B_Sync_Event_To_Google_Sheets_Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4_Schedule_Every_Hour_Rating": {
+      "main": [
+        [
+          {
+            "node": "5_Get_Completed_Appointments_Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5_Get_Completed_Appointments_Supabase": {
+      "main": [
+        [
+          {
+            "node": "5B_Filter_4h_After_Visit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5B_Filter_4h_After_Visit": {
+      "main": [
+        [
+          {
+            "node": "6_Send_1_To_5_Rating_List_WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6_Send_1_To_5_Rating_List_WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "7_Mark_Review_Requested_Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8_Process_Customer_Rating_1_To_5": {
+      "main": [
+        [
+          {
+            "node": "9_Save_Rating_Score_Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9_Save_Rating_Score_Supabase": {
+      "main": [
+        [
+          {
+            "node": "9B_Send_Rating_Reply_To_Customer_WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9B_Send_Rating_Reply_To_Customer_WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Is Low Rating (1 or 2)?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Low Rating (1 or 2)?": {
+      "main": [
+        [
+          {
+            "node": "10_Alert_Admin_If_1_Or_2_Stars_Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "get_my_waitlist": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "bc5debb5-a020-4c0c-b549-e475af9e612a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "1iXGaoBJtJBxubSz",
+  "tags": []
+}
